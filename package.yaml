@@ -24,6 +24,7 @@ dependencies:
 - array >= 0.5.4
 - prettyprinter >= 1.7.1
 - split >= 0.2.3.4
+- extra >= 1.7.0
 
 library:
   source-dirs: src

@@ -32,6 +32,7 @@ library
       Syntax.Pattern
       Syntax.Pretty
       Syntax.Tokens
+      Syntax.Validate
   other-modules:
       Paths_babo
   hs-source-dirs:
@@ -39,6 +40,7 @@ library
   build-depends:
       array >=0.5.4
     , base >=4.7 && <5
+    , extra >=1.7.0
     , prettyprinter >=1.7.1
     , split >=0.2.3.4
   default-language: Haskell2010
@@ -54,6 +56,7 @@ executable babo-exe
       array >=0.5.4
     , babo
     , base >=4.7 && <5
+    , extra >=1.7.0
     , prettyprinter >=1.7.1
     , split >=0.2.3.4
   default-language: Haskell2010
@@ -70,6 +73,7 @@ test-suite babo-test
       array >=0.5.4
     , babo
     , base >=4.7 && <5
+    , extra >=1.7.0
     , prettyprinter >=1.7.1
     , split >=0.2.3.4
   default-language: Haskell2010
