@@ -15,6 +15,7 @@ $alpha = [a-zA-Z]
 @namespace = [A-Z] [$alpha $digit]*
 @lsymbolQ = (@namespace \.)+ @lsymbol
 @usymbolQ = (@namespace \.)+ @usymbol
+@string_literal = \" [^\"]* \"
 
 tokens :-
   $white+                       ;
@@ -24,9 +25,10 @@ tokens :-
   define                        { \s -> TokenDefine }
   let                           { \s -> TokenLet }
   $digit+                       { \s -> TokenInt (True, s) }
-  \- $digit+                     { \s -> TokenInt (False, s) }
+  \- $digit+                    { \s -> TokenInt (False, s) }
   $digit+ \. $digit+            { \s -> TokenFloat (True, (\[x,y] -> (x, y)) (wordsByDot s)) }
-  \- $digit+ \. $digit+          { \s -> TokenFloat (True, (\[x,y] -> (x, y)) (wordsByDot $ tail s)) }
+  \- $digit+ \. $digit+         { \s -> TokenFloat (True, (\[x,y] -> (x, y)) (wordsByDot $ tail s)) }
+  @string_literal               { \s -> TokenString (tail $ init s) }
   \=                            { \s -> TokenEq }
   "->"                          { \s -> TokenArrow }
   \(                            { \s -> TokenLParen }
@@ -58,6 +60,7 @@ data Token = TokenDatatype
            | TokenIn
            | TokenInt (Bool, String)
            | TokenFloat (Bool, (String, String))
+           | TokenString String
            | TokenLSym String
            | TokenUSym String
            | TokenLSymQ (NonEmpty String)

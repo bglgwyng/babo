@@ -22,6 +22,7 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
     let { TokenLet }
     int { TokenInt $$ }
     float { TokenFloat $$ }
+    string { TokenString $$ }
     lsym { TokenLSym $$ }
     usym { TokenUSym $$ }
     lsymQ { TokenLSymQ $$ }
@@ -128,6 +129,7 @@ Pattern__ :: { P.Pattern }
           | '[' ']' { P.List [] }
           | '[' Patterns ']' { P.List (toList $2) }
           | IntegerLiteral { P.Literal $1 }
+          | StringLiteral { P.Literal $1 }
           | '_' { Wildcard }
 
 
@@ -164,6 +166,8 @@ IntegerLiteral :: { Literal }
         : int                         { uncurry IntegerLiteral $1 }
 FloatLiteral :: { Literal }
         : float                         { uncurry (FloatLiteral (fst $1)) (snd $1) }
+StringLiteral :: { Literal }
+        : string { StringLiteral $1 }
 
 Atom :: { Expression }
           : '(' Expression ')'                 { Parenthesized $2 }
@@ -173,12 +177,14 @@ Atom :: { Expression }
           | '\\' LambdaArguments '->' Atom       { Lambda $2 $4 }
           | '\\' LambdaArguments '{' Cases '}'       { LambdaCase (toList $2) $4 } 
           | '\\' '{' Cases '}'       { LambdaCase [] $3 } 
-          | IntegerLiteral { Literal $1 }
-          | FloatLiteral { Literal $1 }
           | lsym                        { Identifier ($1 :| []) }
           | usym                        { Identifier ($1 :| []) }
           | lsymQ                       { Identifier $1 }
           | usymQ                       { Identifier $1 }
+          | IntegerLiteral { Literal $1 }
+          | FloatLiteral { Literal $1 }
+          | StringLiteral                      { Literal $1 }
+          
           
 BinaryExpression :: { Expression }
           : BinaryExpression '->' BinaryExpression              { Arrow $1 $3 }
