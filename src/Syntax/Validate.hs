@@ -46,14 +46,14 @@ validate (Source xs) = do
     validate' :: Expression -> Either Error ()
     validate' (LambdaCase args cases) =
       unless (allSame (length . fst <$> cases)) (Left DifferentNumberOfPatterns)
-        >> validateAll (catMaybes (args <&> snd))
+        >> forM_ args (snd >>> validateAll)
         >> validateAll (cases <&> snd)
     validate' (Application head spine) = validate' head >> validateAll (spine <&> snd)
     validate' (ForAll _ type' body) = validateAll [type', body]
     validate' (Arrow x y) = validateAll [x, y]
     validate' (Let _ value body) = validateAll [value, body]
     validate' (Lambda args body) =
-      forM_ args (snd >>> validateAll) >> validateAll [body]
+      forM_ args (snd >>> validateAll) >> validate' body
     validate' (Infix x _ y) = validateAll [x, y]
     validate' (Tuple xs) = validateAll xs
     validate' (List xs) = validateAll xs
