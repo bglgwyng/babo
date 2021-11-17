@@ -2,6 +2,6 @@ module Common where
 
 import Data.List.NonEmpty
 
-type NewName = String
+type LocalName = String
 
 type Name = NonEmpty String

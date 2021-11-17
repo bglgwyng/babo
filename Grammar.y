@@ -68,14 +68,14 @@ Variants :: { [Variant] }
           | Variant { [$1] }
           | Variant ';' Variants { $1 : $3 }
 
-NewName :: { String }
+LocalName :: { String }
           : lsym { $1 }
 
-NewNames : NewName { $1 :| [] }
-          | NewName NewNames { $1 :| toList $2 }
+LocalNames : LocalName { $1 :| [] }
+          | LocalName LocalNames { $1 :| toList $2 }
 
 Argument :: { Argument }
-          : NewNames ':' Expression { ($1, $3, []) }
+          : LocalNames ':' Expression { ($1, $3, []) }
 Arguments_  :: { [Argument] }
           : Argument { [$1] }
           | Argument ',' Arguments_ { $1 : $3 }
@@ -88,17 +88,17 @@ CommaSeperated :: { [Expression] }
           : Expression { [$1] }
           | Expression ',' CommaSeperated  { $1 : $3 }
 
-NewName_ :: { NewName }
-          : NewName { $1 }
+LocalName_ :: { LocalName }
+          : LocalName { $1 }
           | '_'     { "_" }
 
-NewName_s :: { NonEmpty NewName }
-          : NewName_ { $1 :| [] }
-          | NewName_ NewName_s { $1 :| toList $2 }
+LocalName_s :: { NonEmpty LocalName }
+          : LocalName_ { $1 :| [] }
+          | LocalName_ LocalName_s { $1 :| toList $2 }
 
 LambdaArgument :: { LambdaArgument }
-          : NewName_                     { ($1 :| [], Nothing) }
-          | '(' NewName_s ':' Expression ')'                     { ($2, Just $4) }
+          : LocalName_                     { ($1 :| [], Nothing) }
+          | '(' LocalName_s ':' Expression ')'                     { ($2, Just $4) }
 
 LambdaArguments :: { NonEmpty LambdaArgument }
           : LambdaArgument { $1 :| [] }
@@ -110,7 +110,7 @@ Constructor :: { NonEmpty String }
 
 PatternArgument :: { P.Pattern }
           : Pattern_ { $1 }
-          | '(' NewName '=' Pattern_ ')' { Implicit $2 $4 }
+          | '(' LocalName '=' Pattern_ ')' { Implicit $2 $4 }
           | '(' lsym ')' { PunnedImplicit $2 }
 
 PatternArguments :: { NonEmpty P.Pattern }
@@ -159,7 +159,7 @@ Expression :: { Expression }
 
 Juxtaposition :: { Expression }
           : Juxtaposition Atom                      { Application $1 ((Nothing, $2) :| []) }
-          | Juxtaposition '(' NewName '=' Atom ')'                      { Application $1 ((Just $3, $5) :| []) }
+          | Juxtaposition '(' LocalName '=' Atom ')'                      { Application $1 ((Just $3, $5) :| []) }
           | Atom                           { $1 }
 
 IntegerLiteral :: { Literal }

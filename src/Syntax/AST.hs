@@ -25,18 +25,19 @@ import Syntax.Pattern (Pattern)
 newtype Annotation
   = Annotation Expression
 
-type LambdaArgument = (NonEmpty NewName, Maybe Expression)
+type LambdaArgument = (NonEmpty LocalName, Maybe Expression)
 
 type Case = (NonEmpty Pattern, Expression)
 
-type Disk = (Maybe NewName, Expression)
+type Disk = (Maybe LocalName, Expression)
+
 
 data Expression
-  = Identifier Name
-  | Application Expression (NonEmpty Disk)
-  | ForAll [NewName] Expression Expression
+  = Application Expression (NonEmpty Disk)
+  | Identifier Name
+  | ForAll [LocalName] Expression Expression
   | Arrow Expression Expression
-  | Let NewName Expression Expression
+  | Let LocalName Expression Expression
   | Lambda (NonEmpty LambdaArgument) Expression
   | LambdaCase [LambdaArgument] [Case]
   | Infix Expression Name Expression
@@ -51,7 +52,7 @@ data ImportRule
   | UnqualifiedOnly [(String, ImportRule)]
   | Qualified String
 
-type Argument = (NonEmpty NewName, Expression, [Annotation])
+type Argument = (NonEmpty LocalName, Expression, [Annotation])
 
 type Variant = ([Annotation], String, [Argument], Maybe Expression)
 
