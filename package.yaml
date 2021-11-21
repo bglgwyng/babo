@@ -25,6 +25,10 @@ dependencies:
 - prettyprinter >= 1.7.1
 - split >= 0.2.3.4
 - extra >= 1.7.0
+- containers >= 0.6.5.1
+- monad-gen >= 0.3.0.1
+- logict >= 0.7.1.0
+- mtl >= 2.2.2
 
 library:
   source-dirs: src
