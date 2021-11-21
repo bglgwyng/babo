@@ -31,11 +31,10 @@ type Case = (NonEmpty Pattern, Expression)
 
 type Disk = (Maybe LocalName, Expression)
 
-
 data Expression
   = Application Expression (NonEmpty Disk)
   | Identifier Name
-  | ForAll [LocalName] Expression Expression
+  | ForAll (NonEmpty LocalName) Expression Expression
   | Arrow Expression Expression
   | Let LocalName Expression Expression
   | Lambda (NonEmpty LambdaArgument) Expression

@@ -31,6 +31,7 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
     '_' { TokenUnderscore }
     '=' { TokenEq }
     '->' { TokenArrow }
+    forall { TokenForAll }
     infixOp { TokenInfixOp $$ }
     '(' { TokenLParen }
     ')' { TokenRParen }
@@ -45,6 +46,7 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
 %right ';'
 %right '->'
 %right infixOp
+%right forall
 
 %%
     
@@ -155,11 +157,20 @@ Cases :: { [Case] }
 
 Expression :: { Expression }
           : let lsym '=' Expression ',' Expression { Let $2 $4 $6 }
+          | forall LocalName_s ':' Expression ',' Expression { ForAll $2 $4 $6 }
+          | '\\' LambdaArguments '->' Atom       { Lambda $2 $4 }
+          | '\\' LambdaArguments '{' Cases '}'       { LambdaCase (toList $2) $4 } 
+          | '\\' '{' Cases '}'       { LambdaCase [] $3 } 
           | BinaryExpression                     { $1 }
+          | Juxtaposition                        { $1 }
 
 Juxtaposition :: { Expression }
           : Juxtaposition Atom                      { Application $1 ((Nothing, $2) :| []) }
           | Juxtaposition '(' LocalName '=' Atom ')'                      { Application $1 ((Just $3, $5) :| []) }
+          | '(' Expression ')'                 { Parenthesized $2 }
+          | '(' ')'                     { Literal UnitLiteral } 
+          | '(' Expression ',' CommaSeperated ')'       { Tuple ($2 : $4) }
+          | '[' CommaSeperated ']'       { List $2 }
           | Atom                           { $1 }
 
 IntegerLiteral :: { Literal }
@@ -170,14 +181,7 @@ StringLiteral :: { Literal }
         : string { StringLiteral $1 }
 
 Atom :: { Expression }
-          : '(' Expression ')'                 { Parenthesized $2 }
-          | '(' ')'                     { Literal UnitLiteral }
-          | '(' Expression ',' CommaSeperated ')'       { Tuple ($2 : $4) }
-          | '[' CommaSeperated ']'       { List $2 }
-          | '\\' LambdaArguments '->' Atom       { Lambda $2 $4 }
-          | '\\' LambdaArguments '{' Cases '}'       { LambdaCase (toList $2) $4 } 
-          | '\\' '{' Cases '}'       { LambdaCase [] $3 } 
-          | lsym                        { Identifier ($1 :| []) }
+          : lsym                        { Identifier ($1 :| []) }
           | usym                        { Identifier ($1 :| []) }
           | lsymQ                       { Identifier $1 }
           | usymQ                       { Identifier $1 }
@@ -189,7 +193,7 @@ Atom :: { Expression }
 BinaryExpression :: { Expression }
           : BinaryExpression '->' BinaryExpression              { Arrow $1 $3 }
           | BinaryExpression infixOp BinaryExpression           { Infix $1 $2 $3 }
-          | Juxtaposition                        { $1 }
+          
 
 
 {

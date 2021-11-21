@@ -24,6 +24,7 @@ tokens :-
   declare                       { \s -> TokenDeclare }
   define                        { \s -> TokenDefine }
   let                           { \s -> TokenLet }
+  forall                        { \s -> TokenForAll } 
   $digit+                       { \s -> TokenInt (True, s) }
   \- $digit+                    { \s -> TokenInt (False, s) }
   $digit+ \. $digit+            { \s -> TokenFloat (True, (\[x,y] -> (x, y)) (wordsByDot s)) }
@@ -67,6 +68,7 @@ data Token = TokenDatatype
            | TokenUSymQ (NonEmpty String)
            | TokenEq
            | TokenArrow
+           | TokenForAll
            | TokenLParen
            | TokenRParen
            | TokenLBrace

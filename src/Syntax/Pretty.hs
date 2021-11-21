@@ -53,7 +53,7 @@ instance Pretty Expression where
         pretty body
       ]
   pretty (ForAll names type' y) =
-    pretty "forall" <+> align (sep (pretty <$> names) <+> pretty ":" <+> pretty type' <> pretty "," <+> pretty y)
+    pretty "forall" <+> align (sep (pretty <$> toList names) <+> pretty ":" <+> pretty type' <> pretty "," <+> pretty y)
   pretty (Infix x op y) = pretty x <+> pretty "." <> prettyName op <+> pretty y
   pretty (Tuple xs) = pretty "( " <> align (commaSeparated (pretty <$> xs) <> pretty " )")
   pretty (List xs) = pretty "[ " <> align (commaSeparated (pretty <$> xs) <> pretty " ]")
