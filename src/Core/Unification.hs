@@ -1,9 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Core.Unification
-  ( Id (..),
-    Index (..),
-    Term (..),
+  ( Term (..),
     raise,
     subst,
     substMV,
@@ -15,10 +14,11 @@ module Core.Unification
     unify,
     runUnifyM,
     driver,
+    Context (..),
   )
 where
 
-import Common (Name)
+import Common
 import Control.Monad
 import Control.Monad.Gen
 import Control.Monad.Logic
@@ -40,64 +40,52 @@ raise :: Int -> Term -> Term
 raise = go 0
   where
     go lower i t = case t of
-      FreeVar i -> FreeVar i
-      GlobalVar i -> GlobalVar i
       LocalVar j -> if i > lower then LocalVar (i + j) else LocalVar j
-      MetaVar i -> MetaVar i
-      Uni -> Uni
       Ap l r -> go lower i l `Ap` go lower i r
-      Lam body -> Lam (go (lower + 1) i body)
+      Lam tp body -> Lam (go lower i tp) (go (lower + 1) i body)
       Pi tp body -> Pi (go lower i tp) (go (lower + 1) i body)
+      _ -> t
 
 -- | Substitute a term for the de Bruijn variable @i@.
 subst :: Term -> Int -> Term -> Term
 subst new i t = case t of
-  FreeVar i -> FreeVar i
-  GlobalVar i -> GlobalVar i
   LocalVar j -> case compare j i of
     LT -> LocalVar j
     EQ -> new
     GT -> LocalVar (j - 1)
-  MetaVar i -> MetaVar i
-  Uni -> Uni
   Ap l r -> subst new i l `Ap` subst new i r
-  Lam body -> Lam (subst (raise 1 new) (i + 1) body)
+  Lam tp body -> Lam (subst new i tp) (subst (raise 1 new) (i + 1) body)
   Pi tp body -> Pi (subst new i tp) (subst (raise 1 new) (i + 1) body)
+  _ -> t
 
 -- | Substitute a term for all metavariables with a given identifier.
 substMV :: Term -> Id -> Term -> Term
 substMV new i t = case t of
-  FreeVar i -> FreeVar i
-  GlobalVar i -> GlobalVar i
-  LocalVar i -> LocalVar i
   MetaVar j -> if i == j then new else MetaVar j
-  Uni -> Uni
   Ap l r -> substMV new i l `Ap` substMV new i r
-  Lam body -> Lam (substMV (raise 1 new) i body)
+  Lam tp body -> Lam (substMV new i tp) (substMV (raise 1 new) i body)
   Pi tp body -> Pi (substMV new i tp) (substMV (raise 1 new) i body)
+  _ -> t
 
 -- | Substitute a term for all free variable with a given identifier.
 substFV :: Term -> Id -> Term -> Term
 substFV new i t = case t of
   FreeVar j -> if i == j then new else FreeVar j
-  GlobalVar i -> GlobalVar i
-  MetaVar i -> MetaVar i
-  LocalVar i -> LocalVar i
-  Uni -> Uni
   Ap l r -> substFV new i l `Ap` substFV new i r
-  Lam body -> Lam (substFV (raise 1 new) i body)
+  Lam tp body -> Lam (substFV new i tp) (substFV (raise 1 new) i body)
   Pi tp body -> Pi (substFV new i tp) (substFV (raise 1 new) i body)
+  _ -> t
 
 -- | Gather all the metavariables in a term into a set.
 metavars :: Term -> S.Set Id
 metavars t = case t of
   FreeVar i -> S.empty
-  GlobalVar i -> S.empty
   LocalVar i -> S.empty
+  GlobalVar _ -> S.empty
   MetaVar j -> S.singleton j
   Uni -> S.empty
   Ap l r -> metavars l <> metavars r
-  Lam body -> metavars body
+  Lam tp body -> metavars tp <> metavars body
   Pi tp body -> metavars tp <> metavars body
 
 -- | Returns @True@ if a term has no free variables and is therefore a
@@ -105,29 +93,25 @@ metavars t = case t of
 isClosed :: Term -> Bool
 isClosed t = case t of
   FreeVar i -> False
-  GlobalVar i -> True
   LocalVar i -> True
+  GlobalVar _ -> True
   MetaVar j -> True
   Uni -> True
   Ap l r -> isClosed l && isClosed r
-  Lam body -> isClosed body
+  Lam tp body -> isClosed tp && isClosed body
   Pi tp body -> isClosed tp && isClosed body
 
 -- | Implement reduction for the language. Given a term, normalize it.
 -- This boils down mainly to applying lambdas to their arguments and all
 -- the appropriate congruence rules.
 reduce :: Term -> Term
-reduce t = case t of
-  FreeVar i -> FreeVar i
-  GlobalVar i -> GlobalVar i
-  LocalVar j -> LocalVar j
-  MetaVar i -> MetaVar i
-  Uni -> Uni
+reduce = \case
   Ap l r -> case reduce l of
-    Lam body -> reduce (subst r 0 body)
+    Lam tp body -> reduce (subst r 0 body)
     l' -> Ap l' (reduce r)
-  Lam body -> Lam (reduce body)
+  Lam tp body -> Lam (reduce tp) (reduce body)
   Pi tp body -> Pi (reduce tp) (reduce body)
+  x -> x
 
 -- | Check to see if a term is blocked on applying a metavariable.
 isStuck :: Term -> Bool
@@ -166,10 +150,18 @@ simplify (t1, t2)
     (FreeVar j, cxt') <- peelApTelescope t2 = do
     guard (i == j && length cxt == length cxt')
     fold <$> mapM simplify (zip cxt cxt')
-  | Lam body1 <- t1,
-    Lam body2 <- t2 = do
+  | (GlobalVar i, cxt) <- peelApTelescope t1,
+    (GlobalVar j, cxt') <- peelApTelescope t2 = do
+    guard (i == j && length cxt == length cxt')
+    fold <$> mapM simplify (zip cxt cxt')
+  | Lam tp1 body1 <- t1,
+    Lam tp2 body2 <- t2 = do
     v <- FreeVar <$> lift gen
-    return $ S.singleton (subst v 0 body1, subst v 0 body2)
+    return $
+      S.fromList
+        [ (subst v 0 body1, subst v 0 body2),
+          (tp1, tp2)
+        ]
   | Pi tp1 body1 <- t1,
     Pi tp2 body2 <- t2 = do
     v <- FreeVar <$> lift gen
@@ -187,29 +179,16 @@ type Subst = M.Map Id Term
 -- infinite list of computations producing finite lists.
 tryFlexRigid :: Constraint -> [UnifyM [Subst]]
 tryFlexRigid (t1, t2)
-  | (MetaVar i, cxt1) <- peelApTelescope t1,
+  | MetaVar i <- t1,
     (stuckTerm, cxt2) <- peelApTelescope t2,
     not (i `S.member` metavars t2) =
-    proj (length cxt1) i stuckTerm 0
-  | (MetaVar i, cxt1) <- peelApTelescope t2,
+    [pure [M.singleton i t2] | isClosed t2]
+  -- proj (length cxt1) i stuckTerm 0
+  | MetaVar i <- t2,
     (stuckTerm, cxt2) <- peelApTelescope t1,
     not (i `S.member` metavars t1) =
-    proj (length cxt1) i stuckTerm 0
+    [pure [M.singleton i t1 | isClosed t1]]
   | otherwise = []
-  where
-    proj bvars mv f nargs =
-      generateSubst bvars mv f nargs : proj bvars mv f (nargs + 1)
-    generateSubst bvars mv f nargs = do
-      let mkLam tm = foldr ($) tm (replicate bvars Lam)
-      let saturateMV tm = foldl' Ap tm (map LocalVar [0 .. bvars - 1])
-      let mkSubst = M.singleton mv
-      args <- map saturateMV . map MetaVar <$> replicateM nargs (lift gen)
-      return
-        [ mkSubst . mkLam $ applyApTelescope t args
-          | t <-
-              map LocalVar [0 .. bvars - 1]
-                ++ if isClosed f then [f] else []
-        ]
 
 -- | The reflexive transitive closure of @simplify@
 repeatedlySimplify :: S.Set Constraint -> UnifyM (S.Set Constraint)
@@ -227,8 +206,10 @@ s1 <+> s2 = M.union (manySubst s1 <$> s2) s1
 -- | The top level function, given a substitution and a set of
 -- constraints, produce a solution substution and the resulting set of
 -- flex-flex equations.
-unify :: Subst -> S.Set Constraint -> UnifyM (Subst, S.Set Constraint)
-unify s cs = do
+data Context = Context {metas :: Subst, globals :: M.Map String Term}
+
+unify :: Context -> S.Set Constraint -> UnifyM (Subst, S.Set Constraint)
+unify ctx@Context {metas = s} cs = do
   let cs' = applySubst s cs
   cs'' <- repeatedlySimplify cs'
   let (flexflexes, flexrigids) = S.partition flexflex cs''
@@ -243,7 +224,7 @@ unify s cs = do
     trySubsts [] cs = mzero
     trySubsts (mss : psubsts) cs = do
       ss <- mss
-      let these = foldr interleave mzero [unify (newS <+> s) cs | newS <- ss]
+      let these = foldr interleave mzero [unify ctx {metas = newS <+> s} cs | newS <- ss]
       let those = trySubsts psubsts cs
       these `interleave` those
 
@@ -253,4 +234,4 @@ runUnifyM = runGenFrom 100 . observeAllT
 -- | Solve a constraint and return the remaining flex-flex constraints
 -- and the substitution for it.
 driver :: Constraint -> Maybe (Subst, S.Set Constraint)
-driver = listToMaybe . runUnifyM . unify M.empty . S.singleton
+driver = listToMaybe . runUnifyM . unify Context {metas = M.empty} . S.singleton

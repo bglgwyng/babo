@@ -1,3 +1,6 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
@@ -5,11 +8,12 @@
 module Syntax.Desugar where
 
 import Common
+import Context
 import Control.Applicative
 import Control.Arrow ((>>>))
 import Control.Monad (foldM, forM)
-import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), cont, runCont)
-import Control.Monad.Gen (Gen, GenT)
+import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), MonadTrans (lift), cont, runCont)
+import Control.Monad.Gen (Gen, GenT, gen)
 import qualified Core.Term as T
 import Data.Functor ((<&>))
 import Data.List.Extra (elemIndex)
@@ -21,17 +25,6 @@ import Syntax.AST (TopLevelStatement (..))
 import qualified Syntax.AST as AST
 import Syntax.Literal
 
-data Inhabitant
-  = TypeConstructor T.Term
-  | DataConstructor T.Term
-  | Declaration T.Term
-  | Definition (Maybe T.Term) T.Term
-  deriving (Show)
-
-type GlobalContext = Map Name Inhabitant
-
-type LocalContext = [LocalName]
-
 pairNew = T.GlobalVar ("Prelude" :| ["Pair", "New"])
 
 listCons = T.GlobalVar ("Prelude" :| ["List", "Cons"])
@@ -40,27 +33,28 @@ listNil = T.GlobalVar ("Prelude" :| ["List", "Nil"])
 
 extend = ("_" :)
 
-desugarExpression :: GlobalContext -> AST.Expression -> Gen T.Id T.Term
+desugarExpression :: GlobalContext -> AST.Expression -> Gen Id T.Term
 desugarExpression globalCtx = desugar' []
   where
-    desugar' :: LocalContext -> AST.Expression -> Gen T.Id T.Term
+    desugar' :: LocalContext -> AST.Expression -> Gen Id T.Term
     desugar' ctx = \case
       AST.Application head spine -> do
-        head' <- (desugar' ctx head)
+        head' <- desugar' ctx head
         spine <- forM spine (desugar'' . snd)
         pure $ foldl T.Ap head' spine
       AST.Identifier x ->
-        pure $ fromJust (lookup x)
+        pure $ trace (show (globalCtx, x)) (fromJust (lookup x))
       AST.ForAll xs type' body ->
         forall ctx (toList xs)
         where
-          forall :: LocalContext -> [LocalName] -> Gen T.Id T.Term
+          forall :: LocalContext -> [LocalName] -> Gen Id T.Term
           forall _ [] = desugar' (toList xs <> ctx) body
           forall ctx (x : xs) =
             T.Pi <$> desugar'' type' <*> forall (extend ctx) xs
       AST.Arrow x y ->
         T.Pi <$> desugar'' x <*> desugar' (extend ctx) y
-      AST.Let name value body -> T.Ap . T.Lam <$> desugar' (name : ctx) body <*> desugar'' value
+      AST.Let name value body ->
+        T.Ap <$> (T.Lam <$> (T.MetaVar <$> gen) <*> desugar' (name : ctx) body) <*> desugar'' value
       AST.Lambda args body -> runContT (lambda ctx (toList args)) (`desugar'` body)
       AST.LambdaCase args cases -> runContT (lambda ctx args) (`desugar'` undefined)
       AST.Infix x op y ->
@@ -82,26 +76,28 @@ desugarExpression globalCtx = desugar' []
               else Nothing
           )
             <|> if x' `member` globalCtx then Just (T.GlobalVar x') else Nothing
-    lambda :: LocalContext -> [AST.LambdaArgument] -> ContT T.Term (Gen T.Id) LocalContext
-    lambda ctx [] = ContT $ \k -> T.Lam <$> k ctx
-    lambda ctx ((names, type') : xs) = ContT $ (fmap T.Lam . runContT (lambda (toList names <> ctx) xs))
+    lambda :: LocalContext -> [AST.LambdaArgument] -> ContT T.Term (Gen Id) LocalContext
+    lambda ctx [] = ContT ($ ctx)
+    lambda ctx ((names, type') : xs) = do
+      type'' <- lift $ maybe (T.MetaVar <$> gen) (desugar' ctx) type'
+      ContT $ fmap (T.Lam type'') . runContT (lambda (toList names <> ctx) xs)
 
-desugar :: AST.Source -> Gen T.Id GlobalContext
-desugar (AST.Source xs) = foldM (\xs y -> (xs <>) <$> desugar' xs y) mempty xs
-  where
-    desugar' :: GlobalContext -> AST.TopLevelStatement -> Gen T.Id GlobalContext
-    desugar' ctx AST.DataDeclaration {name, variants} =
-      pure $
-        fromList $
-          (name :| [], TypeConstructor T.Uni) :
-          (variants <&> (\(_, x, _, _) -> (x :| [], DataConstructor T.Uni)))
-    desugar' ctx AST.Declaration {name, type'} =
-      singleton (name :| []) . Syntax.Desugar.Declaration <$> desugarExpression ctx type'
-    desugar' ctx AST.Definition {name, maybeType, value} = do
-      x <- forM maybeType (desugarExpression ctx)
-      y <- desugarExpression ctx value
-      pure $
-        singleton
-          (name :| [])
-          (Syntax.Desugar.Definition x y)
-    desugar' ctx AST.Import {} = undefined
+-- desugar :: AST.Source -> Gen Id GlobalContext
+-- desugar (AST.Source xs) = foldM (\xs y -> (xs <>) <$> desugar' xs y) mempty xs
+--   where
+-- desugar' :: GlobalContext -> AST.TopLevelStatement -> Gen Id GlobalContext
+-- desugar' ctx AST.DataDeclaration {name, variants} =
+--   pure $
+--     fromList $
+--       (name :| [], TypeConstructor T.Uni) :
+--       (variants <&> (\(_, x, _, _) -> (x :| [], DataConstructor T.Uni)))
+-- desugar' ctx AST.Declaration {name, type'} =
+--   singleton (name :| []) . Context.Declaration <$> desugarExpression ctx type'
+-- desugar' ctx AST.Definition {name, maybeType, value} = do
+--   x <- forM maybeType (desugarExpression ctx)
+--   y <- desugarExpression ctx value
+--   pure $
+--     singleton
+--       (name :| [])
+--       (Context.Definition x y)
+-- desugar' ctx AST.Import {} = undefined
