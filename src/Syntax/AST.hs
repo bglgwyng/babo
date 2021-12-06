@@ -1,9 +1,12 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE ExtendedDefaultRules #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -17,6 +20,7 @@ import Data.List
 import Data.List.NonEmpty (NonEmpty, toList)
 import GHC.Generics hiding (Constructor)
 import GHC.IOArray (unsafeWriteIOArray)
+import GHC.OverloadedLabels (IsLabel (fromLabel))
 import Prettyprinter.Render.String (renderString)
 import Prettyprinter.Render.Text (putDoc)
 import Syntax.Literal
@@ -54,7 +58,12 @@ data ImportRule
 
 type Argument = (NonEmpty LocalName, Expression, [Annotation])
 
-type Variant = ([Annotation], String, [Argument], Maybe Expression)
+data Variant = Variant
+  { annotatoins :: [Annotation],
+    name :: LocalName,
+    args :: [Argument],
+    maybeType :: Maybe Expression
+  }
 
 data TopLevelStatement
   = DataDeclaration
@@ -84,3 +93,9 @@ data TopLevelStatement
       }
 
 newtype Source = Source {statements :: [TopLevelStatement]}
+
+instance IsLabel "name" (Variant -> String) where
+  fromLabel = name
+
+instance IsLabel "name" (TopLevelStatement -> String) where
+  fromLabel = name

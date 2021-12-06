@@ -1,9 +1,11 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Elaborate where
 
 import Common (Id)
 import Context
+import Control.Arrow ((>>>))
 import Control.Monad (foldM)
 import Control.Monad.Gen (Gen, MonadGen (gen), runGen)
 import Control.Monad.Trans (lift)
@@ -25,25 +27,21 @@ elaborate' ctx AST.DataDeclaration {name, variants} =
     Just $
       fromList
         ( (name :| [], TypeConstructor Uni) :
-          (variants <&> (\(_, name', _, _) -> (name' :| [], DataConstructor (GlobalVar (name :| [])))))
+          (variants <&> (\Variant {name = name'} -> (name' :| [], DataConstructor (GlobalVar (name :| [])))))
         )
-elaborate' ctx AST.Declaration {name, type'} =
+elaborate' ctx AST.Declaration {name, args, type'} =
   do
     type' <- lift $ desugarExpression ctx type'
     pure $
       infer' ctx type' Uni
-        <&> ( \(x, y) ->
-                M.singleton (name :| []) $ Context.Declaration x
-            )
+        <&> (fst >>> (M.singleton (name :| []) . Context.Declaration))
 elaborate' ctx AST.Definition {name, maybeType, value} =
   do
     type' <- lift $ maybe (MetaVar <$> gen) (desugarExpression ctx) maybeType
     value' <- lift $ desugarExpression ctx value
     pure $
       infer' ctx value' type'
-        <&> ( \(x, y) ->
-                M.singleton (name :| []) $ Context.Definition x y
-            )
+        <&> (M.singleton (name :| []) . uncurry Context.Definition)
 elaborate' ctx AST.Import {} = undefined
 
 elaborate :: AST.Source -> Maybe GlobalContext

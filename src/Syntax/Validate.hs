@@ -1,5 +1,8 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Syntax.Validate where
 
@@ -11,7 +14,7 @@ import Data.List
 import Data.List.Extra
 import Data.Maybe (catMaybes)
 import Data.Tuple.Extra (snd3)
-import Syntax.AST (Expression (..), Source (..), TopLevelStatement (..), name)
+import Syntax.AST (Expression (..), Source (..), TopLevelStatement (..), Variant (..), name)
 
 data Error
   = DuplicateName
@@ -21,19 +24,19 @@ data Error
 
 validate :: Source -> Either Error ()
 validate (Source xs) = do
-  let names = name <$> xs
+  let names = (#name :: TopLevelStatement -> String) <$> xs
   when (anySame names) (Left DuplicateName)
   forM_ xs $ \case
     DataDeclaration {args, maybeType, variants} -> do
-      let names = variants <&> (\(_, x, _, _) -> x)
+      let names = (#name :: Variant -> String) <$> variants
       when (anySame names) (Left DuplicateVariantName)
       forM_ (args <&> snd3) validate'
       forM_ maybeType validate'
       forM_
         variants
-        $ \(_, _, args, xs) -> do
+        $ \Variant {args, maybeType} -> do
           forM_ args (snd3 >>> validate')
-          forM_ xs validate'
+          forM_ maybeType validate'
     Definition {name, args, maybeType, value} -> do
       forM_ (args <&> snd3) validate'
       forM_ maybeType validate'

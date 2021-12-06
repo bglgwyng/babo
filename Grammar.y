@@ -55,19 +55,20 @@ Statements :: { Source }
           : Statement { Source [$1] }
           | Statement Statements { Source ($1 : statements $2) }
 
+Name :: { String }
+          : usym { $1 }
+          | lsym { $1 }
+
 Statement :: { TopLevelStatement }
           : datatype usym Arguments '{' Variants '}' { DataDeclaration $2 $3 Nothing $5 [] }
           | datatype usym Arguments ':' Expression '{' Variants '}' { DataDeclaration $2 $3 (Just $5) $7 [] }
-          | declare lsym Arguments ':' Expression  { Declaration $2 $3 $5 [] }
-          | declare usym Arguments ':' Expression  { Declaration $2 $3 $5 [] }
-          | define lsym Arguments '=' Expression  { Definition $2 $3 Nothing $5 [] }
-          | define usym Arguments '=' Expression  { Definition $2 $3 Nothing $5 [] }
-          | define lsym Arguments ':' Expression '=' Expression  { Definition $2 $3 (Just $5) $7 [] }
-          | define usym Arguments ':' Expression '=' Expression  { Definition $2 $3 (Just $5) $7 [] }
+          | declare Name Arguments ':' Expression  { Declaration $2 $3 $5 [] }
+          | define Name Arguments '=' Expression  { Definition $2 $3 Nothing $5 [] }
+          | define Name Arguments ':' Expression '=' Expression  { Definition $2 $3 (Just $5) $7 [] }
 
 Variant :: { Variant }
-          : usym Arguments { ([], $1, $2, Nothing) }
-          | usym Arguments ':' Expression { ([], $1, $2, Just $4) }
+          : usym Arguments { Variant [] $1 $2 Nothing }
+          | usym Arguments ':' Expression { Variant [] $1 $2 (Just $4) }
 
 Variants :: { [Variant] }
           : {- empty -} { [] }

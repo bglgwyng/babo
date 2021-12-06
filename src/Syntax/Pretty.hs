@@ -1,3 +1,4 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Syntax.Pretty where
@@ -120,7 +121,7 @@ instance Pretty TopLevelStatement where
         <> pretty "}"
     where
       prettyVariant :: Variant -> Doc ann
-      prettyVariant (_, name, args, maybeType) =
+      prettyVariant Variant {name, args, maybeType} =
         pretty name
           <> prettyArguments args
           <> maybe mempty (pretty " :" <+>) (pretty <$> maybeType)
