@@ -65,6 +65,7 @@ desugarExpression globalCtx = desugar' []
       AST.List xs -> do
         xs' <- forM xs desugar''
         pure $ foldr (flip T.Ap . T.Ap listCons) listNil xs'
+      AST.Type -> pure T.Uni
       AST.Literal x -> undefined
       AST.Parenthesized x -> desugar'' x
       where

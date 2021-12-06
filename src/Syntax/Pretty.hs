@@ -78,6 +78,7 @@ instance Pretty Expression where
               <+> align (pretty expression)
               <> pretty ';'
           ]
+  pretty Type = pretty "Type"
   pretty (Literal x) = pretty x
   pretty (Parenthesized x) = pretty "(" <> align (pretty x <> pretty ")")
 

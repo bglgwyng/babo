@@ -40,6 +40,7 @@ data Expression
   | Lambda (NonEmpty LambdaArgument) Expression
   | LambdaCase [LambdaArgument] [Case]
   | Infix Expression Name Expression
+  | Type
   | Tuple [Expression]
   | List [Expression]
   | Literal Literal

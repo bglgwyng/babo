@@ -19,6 +19,7 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
     datatype { TokenDatatype }
     declare { TokenDeclare }
     define { TokenDefine }
+    type { TokenType }
     let { TokenLet }
     int { TokenInt $$ }
     float { TokenFloat $$ }
@@ -58,8 +59,11 @@ Statement :: { TopLevelStatement }
           : datatype usym Arguments '{' Variants '}' { DataDeclaration $2 $3 Nothing $5 [] }
           | datatype usym Arguments ':' Expression '{' Variants '}' { DataDeclaration $2 $3 (Just $5) $7 [] }
           | declare lsym Arguments ':' Expression  { Declaration $2 $3 $5 [] }
+          | declare usym Arguments ':' Expression  { Declaration $2 $3 $5 [] }
           | define lsym Arguments '=' Expression  { Definition $2 $3 Nothing $5 [] }
+          | define usym Arguments '=' Expression  { Definition $2 $3 Nothing $5 [] }
           | define lsym Arguments ':' Expression '=' Expression  { Definition $2 $3 (Just $5) $7 [] }
+          | define usym Arguments ':' Expression '=' Expression  { Definition $2 $3 (Just $5) $7 [] }
 
 Variant :: { Variant }
           : usym Arguments { ([], $1, $2, Nothing) }
@@ -162,16 +166,32 @@ Expression :: { Expression }
           | '\\' LambdaArguments '{' Cases '}'       { LambdaCase (toList $2) $4 } 
           | '\\' '{' Cases '}'       { LambdaCase [] $3 } 
           | BinaryExpression                     { $1 }
-          | Juxtaposition                        { $1 }
+
+          
+BinaryExpression :: { Expression }
+          : BinaryExpression '->' BinaryExpression              { Arrow $1 $3 }
+          | BinaryExpression infixOp BinaryExpression           { Infix $1 $2 $3 }
+          | Juxtaposition { $1 }
 
 Juxtaposition :: { Expression }
           : Juxtaposition Atom                      { Application $1 ((Nothing, $2) :| []) }
           | Juxtaposition '(' LocalName '=' Atom ')'                      { Application $1 ((Just $3, $5) :| []) }
-          | '(' Expression ')'                 { Parenthesized $2 }
+          | Atom                           { $1 }
+
+Atom :: { Expression }
+          : '(' Expression ')'                 { Parenthesized $2 }
           | '(' ')'                     { Literal UnitLiteral } 
           | '(' Expression ',' CommaSeperated ')'       { Tuple ($2 : $4) }
           | '[' CommaSeperated ']'       { List $2 }
-          | Atom                           { $1 }
+          | lsym                        { Identifier ($1 :| []) }
+          | usym                        { Identifier ($1 :| []) }
+          | lsymQ                       { Identifier $1 }
+          | usymQ                       { Identifier $1 }
+          | type                        { Type }
+          | IntegerLiteral { Literal $1 }
+          | FloatLiteral { Literal $1 }
+          | StringLiteral                      { Literal $1 }
+          
 
 IntegerLiteral :: { Literal }
         : int                         { uncurry IntegerLiteral $1 }
@@ -180,20 +200,6 @@ FloatLiteral :: { Literal }
 StringLiteral :: { Literal }
         : string { StringLiteral $1 }
 
-Atom :: { Expression }
-          : lsym                        { Identifier ($1 :| []) }
-          | usym                        { Identifier ($1 :| []) }
-          | lsymQ                       { Identifier $1 }
-          | usymQ                       { Identifier $1 }
-          | IntegerLiteral { Literal $1 }
-          | FloatLiteral { Literal $1 }
-          | StringLiteral                      { Literal $1 }
-          
-          
-BinaryExpression :: { Expression }
-          : BinaryExpression '->' BinaryExpression              { Arrow $1 $3 }
-          | BinaryExpression infixOp BinaryExpression           { Infix $1 $2 $3 }
-          
 
 
 {
