@@ -21,7 +21,6 @@ import Syntax.Desugar (desugarExpression)
 import Syntax.Grammar (parse)
 import Syntax.Pretty
 import Syntax.Tokens (scanTokens)
-import Syntax.Validate (validate)
 import System.IO (putStrLn)
 
 main :: IO ()

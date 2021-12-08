@@ -29,8 +29,7 @@ data HappyAbsSyn t10
 	| HappyAbsSyn14 ([Expression])
 	| HappyAbsSyn15 (LocalName)
 	| HappyAbsSyn16 (NonEmpty LocalName)
-	| HappyAbsSyn17 (LambdaArgument)
-	| HappyAbsSyn18 (NonEmpty LambdaArgument)
+	| HappyAbsSyn18 (NonEmpty Argument)
 	| HappyAbsSyn19 (NonEmpty String)
 	| HappyAbsSyn20 (P.Pattern)
 	| HappyAbsSyn21 (NonEmpty P.Pattern)
@@ -1315,7 +1314,7 @@ happyReduction_18 (HappyAbsSyn29  happy_var_3)
 	_
 	(HappyAbsSyn10  happy_var_1)
 	 =  HappyAbsSyn11
-		 ((happy_var_1, happy_var_3, [])
+		 ((happy_var_1, Just happy_var_3, [])
 	)
 happyReduction_18 _ _ _  = notHappyAtAll 
 
@@ -1395,8 +1394,8 @@ happyReduction_28 _ _  = notHappyAtAll
 
 happyReduce_29 = happySpecReduce_1  17 happyReduction_29
 happyReduction_29 (HappyAbsSyn15  happy_var_1)
-	 =  HappyAbsSyn17
-		 ((happy_var_1 :| [], Nothing)
+	 =  HappyAbsSyn11
+		 ((happy_var_1 :| [], Nothing, [])
 	)
 happyReduction_29 _  = notHappyAtAll 
 
@@ -1407,12 +1406,12 @@ happyReduction_30 (_ `HappyStk`
 	(HappyAbsSyn16  happy_var_2) `HappyStk`
 	_ `HappyStk`
 	happyRest)
-	 = HappyAbsSyn17
-		 ((happy_var_2, Just happy_var_4)
+	 = HappyAbsSyn11
+		 ((happy_var_2, Just happy_var_4, [])
 	) `HappyStk` happyRest
 
 happyReduce_31 = happySpecReduce_1  18 happyReduction_31
-happyReduction_31 (HappyAbsSyn17  happy_var_1)
+happyReduction_31 (HappyAbsSyn11  happy_var_1)
 	 =  HappyAbsSyn18
 		 (happy_var_1 :| []
 	)
@@ -1420,7 +1419,7 @@ happyReduction_31 _  = notHappyAtAll
 
 happyReduce_32 = happySpecReduce_2  18 happyReduction_32
 happyReduction_32 (HappyAbsSyn18  happy_var_2)
-	(HappyAbsSyn17  happy_var_1)
+	(HappyAbsSyn11  happy_var_1)
 	 =  HappyAbsSyn18
 		 (happy_var_1 :| toList happy_var_2
 	)

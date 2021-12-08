@@ -12,3 +12,4 @@ data Literal
         integer :: String,
         fractional :: String
       }
+  deriving (Show)

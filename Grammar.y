@@ -82,7 +82,7 @@ LocalNames : LocalName { $1 :| [] }
           | LocalName LocalNames { $1 :| toList $2 }
 
 Argument :: { Argument }
-          : LocalNames ':' Expression { ($1, $3, []) }
+          : LocalNames ':' Expression { ($1, Just $3, []) }
 Arguments_  :: { [Argument] }
           : Argument { [$1] }
           | Argument ',' Arguments_ { $1 : $3 }
@@ -103,11 +103,11 @@ LocalName_s :: { NonEmpty LocalName }
           : LocalName_ { $1 :| [] }
           | LocalName_ LocalName_s { $1 :| toList $2 }
 
-LambdaArgument :: { LambdaArgument }
-          : LocalName_                     { ($1 :| [], Nothing) }
-          | '(' LocalName_s ':' Expression ')'                     { ($2, Just $4) }
+LambdaArgument :: { Argument }
+          : LocalName_                     { ($1 :| [], Nothing, []) }
+          | '(' LocalName_s ':' Expression ')'                     { ($2, Just $4, []) }
 
-LambdaArguments :: { NonEmpty LambdaArgument }
+LambdaArguments :: { NonEmpty Argument }
           : LambdaArgument { $1 :| [] }
           | LambdaArgument LambdaArguments { $1 :| toList $2 }
 

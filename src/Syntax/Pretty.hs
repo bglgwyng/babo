@@ -83,12 +83,12 @@ instance Pretty Expression where
   pretty (Literal x) = pretty x
   pretty (Parenthesized x) = pretty "(" <> align (pretty x <> pretty ")")
 
-prettyLambdaArguments :: NonEmpty AST.LambdaArgument -> Doc ann
+prettyLambdaArguments :: NonEmpty AST.Argument -> Doc ann
 prettyLambdaArguments args = sep $ pretty' <$> toList args
   where
-    pretty' :: AST.LambdaArgument -> Doc ann
-    pretty' (name, Nothing) = sep (pretty <$> toList name)
-    pretty' (name, Just type') = pretty "(" <> sep (pretty <$> toList name) <+> pretty ":" <+> pretty type' <> pretty ")"
+    pretty' :: AST.Argument -> Doc ann
+    pretty' (name, Nothing, _) = sep (pretty <$> toList name)
+    pretty' (name, Just type', _) = pretty "(" <> sep (pretty <$> toList name) <+> pretty ":" <+> pretty type' <> pretty ")"
 
 prettyArguments :: [Argument] -> Doc ann
 prettyArguments [] = mempty

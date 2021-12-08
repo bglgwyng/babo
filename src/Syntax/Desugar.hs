@@ -33,8 +33,8 @@ listNil = T.GlobalVar ("Prelude" :| ["List", "Nil"])
 
 extend = ("_" :)
 
-desugarExpression :: GlobalContext -> AST.Expression -> Gen Id T.Term
-desugarExpression globalCtx = desugar' []
+desugarExpression :: GlobalContext -> LocalContext -> AST.Expression -> Gen Id T.Term
+desugarExpression globalCtx = desugar'
   where
     desugar' :: LocalContext -> AST.Expression -> Gen Id T.Term
     desugar' ctx = \case
@@ -43,7 +43,7 @@ desugarExpression globalCtx = desugar' []
         spine <- forM spine (desugar'' . snd)
         pure $ foldl T.Ap head' spine
       AST.Identifier x ->
-        pure $ trace (show (globalCtx, x)) (fromJust (lookup x))
+        pure $ fromJust (lookup x)
       AST.ForAll xs type' body ->
         forall ctx (toList xs)
         where
@@ -55,8 +55,8 @@ desugarExpression globalCtx = desugar' []
         T.Pi <$> desugar'' x <*> desugar' (extend ctx) y
       AST.Let name value body ->
         T.Ap <$> (T.Lam <$> (T.MetaVar <$> gen) <*> desugar' (name : ctx) body) <*> desugar'' value
-      AST.Lambda args body -> runContT (lambda ctx (toList args)) (`desugar'` body)
-      AST.LambdaCase args cases -> runContT (lambda ctx args) (`desugar'` undefined)
+      AST.Lambda args body -> lambda ctx (toList args) body
+      AST.LambdaCase args cases -> lambda ctx args undefined
       AST.Infix x op y ->
         T.Ap . T.Ap (fromJust $ lookup op) <$> desugar'' x <*> desugar'' y
       AST.Tuple xs -> do
@@ -77,11 +77,27 @@ desugarExpression globalCtx = desugar' []
               else Nothing
           )
             <|> if x' `member` globalCtx then Just (T.GlobalVar x') else Nothing
-    lambda :: LocalContext -> [AST.LambdaArgument] -> ContT T.Term (Gen Id) LocalContext
-    lambda ctx [] = ContT ($ ctx)
-    lambda ctx ((names, type') : xs) = do
-      type'' <- lift $ maybe (T.MetaVar <$> gen) (desugar' ctx) type'
-      ContT $ fmap (T.Lam type'') . runContT (lambda (toList names <> ctx) xs)
+    lambda :: LocalContext -> [AST.Argument] -> AST.Expression -> (Gen Id) T.Term
+    lambda ctx xs body = do
+      (args, context) <- desugarArguments globalCtx ctx xs
+      body' <- desugarExpression globalCtx context body
+      pure $ foldr T.Lam body' args
+
+-- lambda ctx ((names, type') : xs) = do
+--   type'' <- lift $ maybe (T.MetaVar <$> gen) (desugar' ctx) type'
+--   ContT $ fmap (T.Lam type'') . runContT (lambda (toList names <> ctx) xs)
+
+desugarArguments :: GlobalContext -> LocalContext -> [AST.Argument] -> (Gen Id) ([T.Term], LocalContext)
+desugarArguments globalCtx = go
+  where
+    go :: LocalContext -> [AST.Argument] -> (Gen Id) ([T.Term], LocalContext)
+    go ctx [] = pure ([], [])
+    go ctx ((names, type', _) : xs) = do
+      type'' <- maybe (T.MetaVar <$> gen) (desugarExpression globalCtx ctx) type'
+      (args, context) <- go (toList names <> ctx) xs
+      pure $ (replicate (length names) type'' <> args, context <> reverse (toList names))
+
+-- ContT $ fmap (T.Lam type'') . runContT (go (toList names <> ctx) xs)
 
 -- desugar :: AST.Source -> Gen Id GlobalContext
 -- desugar (AST.Source xs) = foldM (\xs y -> (xs <>) <$> desugar' xs y) mempty xs

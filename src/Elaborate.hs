@@ -17,6 +17,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (fromList)
 import qualified Data.Map as M
 import Data.Maybe (listToMaybe)
+import Debug.Trace
 import Syntax.AST
 import qualified Syntax.AST as AST
 import Syntax.Desugar
@@ -31,14 +32,15 @@ elaborate' ctx AST.DataDeclaration {name, variants} =
         )
 elaborate' ctx AST.Declaration {name, args, type'} =
   do
-    type' <- lift $ desugarExpression ctx type'
+    (args', ctx') <- lift $ desugarArguments ctx [] args
+    type' <- lift $ desugarExpression ctx ctx' type'
     pure $
-      infer' ctx type' Uni
+      infer' ctx (foldr Pi type' args') Uni
         <&> (fst >>> (M.singleton (name :| []) . Context.Declaration))
 elaborate' ctx AST.Definition {name, maybeType, value} =
   do
-    type' <- lift $ maybe (MetaVar <$> gen) (desugarExpression ctx) maybeType
-    value' <- lift $ desugarExpression ctx value
+    type' <- lift $ maybe (MetaVar <$> gen) (desugarExpression ctx []) maybeType
+    value' <- lift $ desugarExpression ctx [] value
     pure $
       infer' ctx value' type'
         <&> (M.singleton (name :| []) . uncurry Context.Definition)
