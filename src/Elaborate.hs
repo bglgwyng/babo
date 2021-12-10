@@ -23,13 +23,16 @@ import qualified Syntax.AST as AST
 import Syntax.Desugar
 
 elaborate' :: GlobalContext -> AST.TopLevelStatement -> UnifyM (Maybe GlobalContext)
-elaborate' ctx AST.DataDeclaration {name, variants} =
-  pure $
-    Just $
-      fromList
-        ( (name :| [], TypeConstructor Uni) :
-          (variants <&> (\Variant {name = name'} -> (name' :| [], DataConstructor (GlobalVar (name :| [])))))
-        )
+elaborate' ctx AST.DataDeclaration {name, args, maybeType, variants} =
+  do
+    (args', ctx') <- lift $ desugarArguments ctx [] args
+    type' <- lift $ maybe (pure Uni) (desugarExpression ctx []) maybeType
+    pure $
+      Just $
+        fromList
+          ( (name :| [], TypeConstructor $ foldr Pi type' args') :
+            (variants <&> (\Variant {name = name'} -> (name' :| [], DataConstructor (GlobalVar (name :| [])))))
+          )
 elaborate' ctx AST.Declaration {name, args, type'} =
   do
     (args', ctx') <- lift $ desugarArguments ctx [] args
@@ -37,8 +40,9 @@ elaborate' ctx AST.Declaration {name, args, type'} =
     pure $
       infer' ctx (foldr Pi type' args') Uni
         <&> (fst >>> (M.singleton (name :| []) . Context.Declaration))
-elaborate' ctx AST.Definition {name, maybeType, value} =
+elaborate' ctx AST.Definition {name, args, maybeType, value} =
   do
+    (args', ctx') <- lift $ desugarArguments ctx [] args
     type' <- lift $ maybe (MetaVar <$> gen) (desugarExpression ctx []) maybeType
     value' <- lift $ desugarExpression ctx [] value
     pure $
