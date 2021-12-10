@@ -46,7 +46,7 @@ happyExpList = Happy_Data_Array.listArray (0,531) ([0,0,56,0,0,0,28,0,0,0,0,0,0,
 {-# NOINLINE happyExpListPerState #-}
 happyExpListPerState st =
     token_strs_expected
-  where token_strs = ["error","%dummy","%start_parse","Statements","Name","Statement","Variant","Variants","LocalName","LocalNames","Argument","Arguments_","Arguments","CommaSeperated","LocalName_","LocalName_s","LambdaArgument","LambdaArguments","Constructor","PatternArgument","PatternArguments","TuplePattern","Pattern__","Pattern_","Pattern","Patterns","Case","Cases","Expression","BinaryExpression","Juxtaposition","Atom","IntegerLiteral","FloatLiteral","StringLiteral","datatype","declare","define","type","let","int","float","string","lsym","usym","lsymQ","usymQ","'\\\\'","'_'","'='","'->'","forall","infixOp","'('","')'","'{'","'}'","'['","']'","','","':'","';'","%eof"]
+  where token_strs = ["error","%dummy","%start_parse","Statements","Name","Statement","Variant","Variants","LocalName","LocalNames","Argument","Arguments_","Arguments","CommaSeperated","LocalName_","LocalName_s","LambdaArgument","LambdaArguments","Constructor","PatternArgument","PatternArguments","TuplePattern","Pattern__","Pattern_","Pattern","Patterns","Case","Cases","Expression","BinaryExpression","Juxtaposition","Atom","IntegerLiteral","FloatLiteral","StringLiteral","data","decl","def","type","let","int","float","string","lsym","usym","lsymQ","usymQ","'\\\\'","'_'","'='","'->'","forall","infixOp","'('","')'","'{'","'}'","'['","']'","','","':'","';'","%eof"]
         bit_start = st Prelude.* 63
         bit_end = (st Prelude.+ 1) Prelude.* 63
         read_bit = readArrayBit happyExpList

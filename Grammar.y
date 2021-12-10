@@ -16,9 +16,9 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
 %error { parseError }
 
 %token
-    datatype { TokenDatatype }
-    declare { TokenDeclare }
-    define { TokenDefine }
+    data { TokenDatatype }
+    decl { TokenDeclare }
+    def { TokenDefine }
     type { TokenType }
     let { TokenLet }
     int { TokenInt $$ }
@@ -60,11 +60,11 @@ Name :: { String }
           | lsym { $1 }
 
 Statement :: { TopLevelStatement }
-          : datatype usym Arguments '{' Variants '}' { DataDeclaration $2 $3 Nothing $5 [] }
-          | datatype usym Arguments ':' Expression '{' Variants '}' { DataDeclaration $2 $3 (Just $5) $7 [] }
-          | declare Name Arguments ':' Expression  { Declaration $2 $3 $5 [] }
-          | define Name Arguments '=' Expression  { Definition $2 $3 Nothing $5 [] }
-          | define Name Arguments ':' Expression '=' Expression  { Definition $2 $3 (Just $5) $7 [] }
+          : data usym Arguments '{' Variants '}' { DataDeclaration $2 $3 Nothing $5 [] }
+          | data usym Arguments ':' Expression '{' Variants '}' { DataDeclaration $2 $3 (Just $5) $7 [] }
+          | decl Name Arguments ':' Expression  { Declaration $2 $3 $5 [] }
+          | def Name Arguments '=' Expression  { Definition $2 $3 Nothing $5 [] }
+          | def Name Arguments ':' Expression '=' Expression  { Definition $2 $3 (Just $5) $7 [] }
 
 Variant :: { Variant }
           : usym Arguments { Variant [] $1 $2 Nothing }

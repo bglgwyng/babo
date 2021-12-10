@@ -8,6 +8,17 @@ import Data.Functor
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty, nonEmpty, toList)
 import Prettyprinter
+  ( Doc,
+    Pretty (pretty),
+    align,
+    hang,
+    indent,
+    line,
+    punctuate,
+    sep,
+    vsep,
+    (<+>),
+  )
 import Syntax.AST
 import Syntax.AST as AST
 import Syntax.Grammar hiding (indent)
@@ -127,7 +138,7 @@ instance Pretty TopLevelStatement where
           <> maybe mempty (pretty " :" <+>) (pretty <$> maybeType)
           <> pretty ';'
   pretty Definition {name, args, maybeType, value, annotations} =
-    pretty "define"
+    pretty "def"
       <+> align
         ( sep
             [ pretty name
@@ -138,7 +149,7 @@ instance Pretty TopLevelStatement where
             ]
         )
   pretty Declaration {name, args, type', annotations} =
-    pretty "declare"
+    pretty "decl"
       <+> align
         ( pretty name
             <> prettyArguments args

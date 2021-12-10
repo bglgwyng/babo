@@ -20,9 +20,9 @@ $alpha = [a-zA-Z]
 tokens :-
   $white+                       ;
   "--".*                        ;
-  datatype                      { \s -> TokenDatatype }
-  declare                       { \s -> TokenDeclare }
-  define                        { \s -> TokenDefine }
+  data                          { \s -> TokenDatatype }
+  decl                          { \s -> TokenDeclare }
+  def                           { \s -> TokenDefine }
   let                           { \s -> TokenLet }
   forall                        { \s -> TokenForAll } 
   Type                          { \s -> TokenType } 
