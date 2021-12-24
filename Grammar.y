@@ -21,6 +21,8 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
     def { TokenDefine }
     type { TokenType }
     let { TokenLet }
+    case { TokenCase }
+    forall { TokenForAll }
     int { TokenInt $$ }
     float { TokenFloat $$ }
     string { TokenString $$ }
@@ -32,7 +34,6 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
     '_' { TokenUnderscore }
     '=' { TokenEq }
     '->' { TokenArrow }
-    forall { TokenForAll }
     infixOp { TokenInfixOp $$ }
     '(' { TokenLParen }
     ')' { TokenRParen }
@@ -115,12 +116,12 @@ Constructor :: { NonEmpty String }
           : usym { $1 :| [] }
           | usymQ { $1 }
 
-PatternArgument :: { P.Pattern }
-          : Pattern_ { $1 }
-          | '(' LocalName '=' Pattern_ ')' { Implicit $2 $4 }
-          | '(' lsym ')' { PunnedImplicit $2 }
+PatternArgument :: { Either P.Implicit P.Pattern }
+          : Pattern_ { Right $1 }
+          | '(' LocalName '=' Pattern_ ')' { Left (P.Implicit $2 $4) }
+          | '(' lsym ')' { Left (P.PunnedImplicit $2) }
 
-PatternArguments :: { NonEmpty P.Pattern }
+PatternArguments :: { NonEmpty (Either P.Implicit P.Pattern) }
           : PatternArgument { $1 :| [] }
           | PatternArgument PatternArguments { $1 :| toList $2 }
 
@@ -153,7 +154,7 @@ Patterns :: { NonEmpty P.Pattern }
           | Pattern ',' Patterns { $1 :| toList $3 }
           
 Case :: { Case }
-          : Patterns '->' Expression { ($1, $3) }
+          : Pattern '->' Expression { ($1, $3) }
 
 Cases :: { [Case] }
           : {- empty -} { [] }
@@ -163,6 +164,7 @@ Cases :: { [Case] }
 Expression :: { Expression }
           : let lsym '=' Expression ',' Expression { Let $2 $4 $6 }
           | forall LocalName_s ':' Expression ',' Expression { ForAll $2 $4 $6 }
+          | case Expression '{' Cases '}'       { Case $2 $4 } 
           | '\\' LambdaArguments '->' Atom       { Lambda $2 $4 }
           | '\\' LambdaArguments '{' Cases '}'       { LambdaCase (toList $2) $4 } 
           | '\\' '{' Cases '}'       { LambdaCase [] $3 } 

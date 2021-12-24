@@ -38,16 +38,17 @@ instance Pretty Pattern where
   pretty (Data constructor args) =
     if null args
       then prettyName constructor
-      else hang 2 (sep (prettyName constructor : (pretty <$> args)))
+      else hang 2 (sep (prettyName constructor : (prettyArgs <$> args)))
     where
       pretty' x@(Data constructor (_ : _)) =
         if null args
           then pretty x
           else pretty "(" <> pretty x <> pretty ")"
       pretty' x = pretty x
+      prettyArgs (Left (P.Implicit x as)) = pretty "(" <> pretty x <+> pretty "=" <+> pretty as <> pretty ")"
+      prettyArgs (Left (P.PunnedImplicit x)) = pretty "(" <> pretty x <> pretty ")"
+      prettyArgs (Right x) = pretty x
   pretty (P.Literal x) = pretty x
-  pretty (Implicit x as) = pretty "(" <> pretty x <+> pretty "=" <+> pretty as <> pretty ")"
-  pretty (PunnedImplicit x) = pretty "(" <> pretty x <> pretty ")"
   pretty (P.Tuple xs) = pretty "( " <> commaSeparated (pretty <$> xs) <> pretty " )"
   pretty (P.List xs) = pretty "[ " <> commaSeparated (pretty <$> xs) <> pretty " ]"
   pretty Wildcard = pretty "_"
@@ -71,6 +72,8 @@ instance Pretty Expression where
   pretty (List xs) = pretty "[ " <> align (commaSeparated (pretty <$> xs) <> pretty " ]")
   pretty (Lambda names x) =
     pretty "\\" <> align (sep [prettyLambdaArguments names <+> pretty "->", pretty x])
+  pretty (Case x cases) =
+    pretty "case" <+> pretty x <+> pretty "of" <+> align (vsep (pretty <$> cases))
   pretty (LambdaCase names cases) =
     pretty "\\"
       <> align
@@ -81,11 +84,9 @@ instance Pretty Expression where
       <> pretty "{" <+> align (sep (prettyCase <$> cases) <+> pretty "}")
     where
       prettyCase :: Case -> Doc ann
-      prettyCase (patterns, expression) =
+      prettyCase (pattern, expression) =
         sep
-          [ if null patterns
-              then mempty
-              else commaSeparated $ toList (pretty <$> patterns),
+          [ pretty pattern,
             pretty "->"
               <+> align (pretty expression)
               <> pretty ';'

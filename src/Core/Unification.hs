@@ -34,13 +34,13 @@ import qualified Data.Set as S
 ------------------ the language ------------------
 --------------------------------------------------
 
--- | Raise @LocalVar@s without a binding by @i@ amount. Used to avoid
+-- | Raise @Local@s without a binding by @i@ amount. Used to avoid
 -- capture in terms with free de Bruijn variables.
 raise :: Int -> Term -> Term
 raise = go 0
   where
     go lower i t = case t of
-      LocalVar j -> if i > lower then LocalVar (i + j) else LocalVar j
+      Local j -> if i > lower then Local (i + j) else Local j
       Ap l r -> go lower i l `Ap` go lower i r
       Lam tp body -> Lam (go lower i tp) (go (lower + 1) i body)
       Pi tp body -> Pi (go lower i tp) (go (lower + 1) i body)
@@ -49,10 +49,10 @@ raise = go 0
 -- | Substitute a term for the de Bruijn variable @i@.
 subst :: Term -> Int -> Term -> Term
 subst new i t = case t of
-  LocalVar j -> case compare j i of
-    LT -> LocalVar j
+  Local j -> case compare j i of
+    LT -> Local j
     EQ -> new
-    GT -> LocalVar (j - 1)
+    GT -> Local (j - 1)
   Ap l r -> subst new i l `Ap` subst new i r
   Lam tp body -> Lam (subst new i tp) (subst (raise 1 new) (i + 1) body)
   Pi tp body -> Pi (subst new i tp) (subst (raise 1 new) (i + 1) body)
@@ -61,7 +61,7 @@ subst new i t = case t of
 -- | Substitute a term for all metavariables with a given identifier.
 substMV :: Term -> Id -> Term -> Term
 substMV new i t = case t of
-  MetaVar j -> if i == j then new else MetaVar j
+  Meta j -> if i == j then new else Meta j
   Ap l r -> substMV new i l `Ap` substMV new i r
   Lam tp body -> Lam (substMV new i tp) (substMV (raise 1 new) i body)
   Pi tp body -> Pi (substMV new i tp) (substMV (raise 1 new) i body)
@@ -70,7 +70,7 @@ substMV new i t = case t of
 -- | Substitute a term for all free variable with a given identifier.
 substFV :: Term -> Id -> Term -> Term
 substFV new i t = case t of
-  FreeVar j -> if i == j then new else FreeVar j
+  Free j -> if i == j then new else Free j
   Ap l r -> substFV new i l `Ap` substFV new i r
   Lam tp body -> Lam (substFV new i tp) (substFV (raise 1 new) i body)
   Pi tp body -> Pi (substFV new i tp) (substFV (raise 1 new) i body)
@@ -79,27 +79,25 @@ substFV new i t = case t of
 -- | Gather all the metavariables in a term into a set.
 metavars :: Term -> S.Set Id
 metavars t = case t of
-  FreeVar i -> S.empty
-  LocalVar i -> S.empty
-  GlobalVar _ -> S.empty
-  MetaVar j -> S.singleton j
-  Uni -> S.empty
+  Meta j -> S.singleton j
   Ap l r -> metavars l <> metavars r
   Lam tp body -> metavars tp <> metavars body
   Pi tp body -> metavars tp <> metavars body
+  _ -> S.empty
 
 -- | Returns @True@ if a term has no free variables and is therefore a
 -- valid candidate for a solution to a metavariable.
 isClosed :: Term -> Bool
 isClosed t = case t of
-  FreeVar i -> False
-  LocalVar i -> True
-  GlobalVar _ -> True
-  MetaVar j -> True
-  Uni -> True
+  Free i -> False
+  Local i -> True
+  Global _ -> True
+  Meta j -> True
+  Type -> True
   Ap l r -> isClosed l && isClosed r
   Lam tp body -> isClosed tp && isClosed body
   Pi tp body -> isClosed tp && isClosed body
+  Case tp alts -> isClosed tp && all (isClosed . snd) alts
 
 -- | Implement reduction for the language. Given a term, normalize it.
 -- This boils down mainly to applying lambdas to their arguments and all
@@ -115,7 +113,7 @@ reduce = \case
 
 -- | Check to see if a term is blocked on applying a metavariable.
 isStuck :: Term -> Bool
-isStuck MetaVar {} = True
+isStuck Meta {} = True
 isStuck (Ap f _) = isStuck f
 isStuck _ = False
 
@@ -146,17 +144,17 @@ simplify (t1, t2)
   | t1 == t2 && S.null (metavars t1) = return S.empty
   | reduce t1 /= t1 = simplify (reduce t1, t2)
   | reduce t2 /= t2 = simplify (t1, reduce t2)
-  | (FreeVar i, cxt) <- peelApTelescope t1,
-    (FreeVar j, cxt') <- peelApTelescope t2 = do
+  | (Free i, cxt) <- peelApTelescope t1,
+    (Free j, cxt') <- peelApTelescope t2 = do
     guard (i == j && length cxt == length cxt')
     fold <$> mapM simplify (zip cxt cxt')
-  | (GlobalVar i, cxt) <- peelApTelescope t1,
-    (GlobalVar j, cxt') <- peelApTelescope t2 = do
+  | (Global i, cxt) <- peelApTelescope t1,
+    (Global j, cxt') <- peelApTelescope t2 = do
     guard (i == j && length cxt == length cxt')
     fold <$> mapM simplify (zip cxt cxt')
   | Lam tp1 body1 <- t1,
     Lam tp2 body2 <- t2 = do
-    v <- FreeVar <$> lift gen
+    v <- Free <$> lift gen
     return $
       S.fromList
         [ (subst v 0 body1, subst v 0 body2),
@@ -164,7 +162,7 @@ simplify (t1, t2)
         ]
   | Pi tp1 body1 <- t1,
     Pi tp2 body2 <- t2 = do
-    v <- FreeVar <$> lift gen
+    v <- Free <$> lift gen
     return $
       S.fromList
         [ (subst v 0 body1, subst v 0 body2),
@@ -179,12 +177,12 @@ type Subst = M.Map Id Term
 -- infinite list of computations producing finite lists.
 tryFlexRigid :: Constraint -> [UnifyM [Subst]]
 tryFlexRigid (t1, t2)
-  | MetaVar i <- t1,
+  | Meta i <- t1,
     (stuckTerm, cxt2) <- peelApTelescope t2,
     not (i `S.member` metavars t2) =
     [pure [M.singleton i t2] | isClosed t2]
   -- proj (length cxt1) i stuckTerm 0
-  | MetaVar i <- t2,
+  | Meta i <- t2,
     (stuckTerm, cxt2) <- peelApTelescope t1,
     not (i `S.member` metavars t1) =
     [pure [M.singleton i t1 | isClosed t1]]

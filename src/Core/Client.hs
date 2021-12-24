@@ -21,10 +21,10 @@ import Debug.Trace
 typeOf :: GlobalContext -> M.Map Id Term -> M.Map Id Term -> Term -> UnifyM (Term, S.Set Constraint)
 typeOf gcxt mcxt cxt t =
   case t of
-    LocalVar i -> mzero
-    FreeVar i -> foldMap (\x -> return (x, S.empty)) $ M.lookup i cxt
-    MetaVar i -> mzero
-    GlobalVar i ->
+    Local i -> mzero
+    Free i -> foldMap (\x -> return (x, S.empty)) $ M.lookup i cxt
+    Meta i -> mzero
+    Global i ->
       maybe
         undefined
         ( \case
@@ -34,7 +34,7 @@ typeOf gcxt mcxt cxt t =
             TypeConstructor x -> pure (x, mempty)
         )
         $ M.lookup i gcxt
-    Uni -> return (Uni, S.empty)
+    Type -> pure (Type, S.empty)
     Ap l r -> do
       (tpl, cl) <- typeOf' mcxt cxt l
       case tpl of
@@ -49,22 +49,23 @@ typeOf gcxt mcxt cxt t =
           gcxt
           mcxt
           (M.insert v arg cxt)
-          (subst (FreeVar v) 0 b)
+          (subst (Free v) 0 b)
       return
-        ( Pi arg (substFV (LocalVar 0) v (raise 1 to)),
+        ( Pi arg (substFV (Local 0) v (raise 1 to)),
           cs <> S.singleton (arg, arg)
         )
     Pi from to -> do
       v <- lift gen
       maybeFromUnification <- optional $ typeOf' mcxt cxt from
-      (toTp, toCs) <- typeOf' mcxt (M.insert v from cxt) (subst (FreeVar v) 0 to)
+      (toTp, toCs) <- typeOf' mcxt (M.insert v from cxt) (subst (Free v) 0 to)
       return
-        ( Uni,
+        ( Type,
           foldMap snd maybeFromUnification
             <> toCs
-            <> foldMap (S.singleton . (Uni,) . fst) maybeFromUnification
-            <> S.singleton (Uni, toTp)
+            <> foldMap (S.singleton . (Type,) . fst) maybeFromUnification
+            <> S.singleton (Type, toTp)
         )
+    Case x cases -> typeOf' mcxt cxt (snd $ head cases)
   where
     typeOf' = typeOf gcxt
 
@@ -91,17 +92,17 @@ fill gcxt mcxt cxt t =
           gcxt
           mcxt
           (M.insert v arg cxt)
-          (subst (FreeVar v) 0 b)
+          (subst (Free v) 0 b)
       pure $ args' <> cs
     Pi from to -> do
       v <- lift gen
       maybeFromUnification <- fill gcxt mcxt cxt from
-      (toTp, toCs) <- typeOf' mcxt (M.insert v from cxt) (subst (FreeVar v) 0 to)
+      (toTp, toCs) <- typeOf' mcxt (M.insert v from cxt) (subst (Free v) 0 to)
       return
         ( maybeFromUnification
             <> toCs
             -- <> foldMap (S.singleton . (Uni,) . fst) maybeFromUnification
-            <> S.singleton (Uni, toTp)
+            <> S.singleton (Type, toTp)
         )
     _ -> mzero
   where
@@ -123,10 +124,10 @@ fill' gcxt t = listToMaybe . runUnifyM $ go
       (subst, flexflex) <- unify Context {metas = M.empty} cs
       return (manySubst subst tp)
 
-infer' :: GlobalContext -> Term -> Term -> Maybe (Term, Term)
-infer' gctx t1 t2 = listToMaybe . runUnifyM $ go
+infer' :: GlobalContext -> M.Map Id Term -> Term -> Term -> Maybe (Term, Term)
+infer' gctx ctx t1 t2 = listToMaybe . runUnifyM $ go
   where
     go = do
-      (tp, cs) <- typeOf gctx M.empty M.empty t1
+      (tp, cs) <- typeOf gctx M.empty ctx t1
       (subst, flexflex) <- unify Context {metas = M.empty} (cs <> S.singleton (tp, t2))
       return (manySubst subst t1, manySubst subst tp)

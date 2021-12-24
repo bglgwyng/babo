@@ -28,8 +28,9 @@ import Syntax.Pattern (Pattern)
 
 newtype Annotation
   = Annotation Expression
+  deriving (Show)
 
-type Case = (NonEmpty Pattern, Expression)
+type Case = (Pattern, Expression)
 
 type Disk = (Maybe LocalName, Expression)
 
@@ -39,6 +40,7 @@ data Expression
   | ForAll (NonEmpty LocalName) Expression Expression
   | Arrow Expression Expression
   | Let LocalName Expression Expression
+  | Case Expression [Case]
   | Lambda (NonEmpty Argument) Expression
   | LambdaCase [Argument] [Case]
   | Infix Expression Name Expression
@@ -47,6 +49,7 @@ data Expression
   | List [Expression]
   | Literal Literal
   | Parenthesized Expression
+  deriving (Show)
 
 -- TODO: Better name
 data ImportRule
@@ -62,6 +65,7 @@ data Variant = Variant
     args :: [Argument],
     maybeType :: Maybe Expression
   }
+  deriving (Show)
 
 data TopLevelStatement
   = DataDeclaration

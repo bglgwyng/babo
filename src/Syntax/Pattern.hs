@@ -1,14 +1,18 @@
-module Syntax.Pattern (Pattern (..)) where
+module Syntax.Pattern (Pattern (..), Implicit (..)) where
 
 import Common
-import Syntax.Literal
+import Syntax.Literal (Literal)
+
+data Implicit
+  = Implicit LocalName Pattern
+  | PunnedImplicit LocalName
+  deriving (Show)
 
 data Pattern
-  = Data Name [Pattern]
-  | Implicit LocalName Pattern
-  | PunnedImplicit LocalName
+  = Data Name [Either Implicit Pattern]
   | Variable LocalName
   | Tuple [Pattern]
   | List [Pattern]
   | Literal Literal
   | Wildcard
+  deriving (Show)

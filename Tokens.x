@@ -24,6 +24,7 @@ tokens :-
   decl                          { \s -> TokenDeclare }
   def                           { \s -> TokenDefine }
   let                           { \s -> TokenLet }
+  case                          { \s -> TokenCase }
   forall                        { \s -> TokenForAll } 
   Type                          { \s -> TokenType } 
   $digit+                       { \s -> TokenInt (True, s) }
@@ -59,7 +60,7 @@ data Token = TokenDatatype
            | TokenDeclare
            | TokenDefine
            | TokenLet
-           | TokenIn
+           | TokenCase
            | TokenInt (Bool, String)
            | TokenFloat (Bool, (String, String))
            | TokenType

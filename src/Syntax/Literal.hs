@@ -12,4 +12,4 @@ data Literal
         integer :: String,
         fractional :: String
       }
-  deriving (Show)
+  deriving (Show, Eq, Ord)
