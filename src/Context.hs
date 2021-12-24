@@ -11,6 +11,6 @@ data Inhabitant
   | Definition T.Term T.Term
   deriving (Show)
 
-type GlobalContext = Map Name Inhabitant
+type GlobalContext = Map QName Inhabitant
 
 type LocalContext = [LocalName]

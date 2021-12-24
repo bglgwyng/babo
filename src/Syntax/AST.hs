@@ -36,14 +36,14 @@ type Disk = (Maybe LocalName, Expression)
 
 data Expression
   = Application Expression (NonEmpty Disk)
-  | Identifier Name
+  | Identifier QName
   | ForAll (NonEmpty LocalName) Expression Expression
   | Arrow Expression Expression
   | Let LocalName Expression Expression
   | Case Expression [Case]
   | Lambda (NonEmpty Argument) Expression
   | LambdaCase [Argument] [Case]
-  | Infix Expression Name Expression
+  | Infix Expression QName Expression
   | Type
   | Tuple [Expression]
   | List [Expression]

@@ -3,6 +3,7 @@
 
 module Syntax.Pretty where
 
+import Common (QName)
 import Control.Arrow ((>>>))
 import Data.Functor
 import Data.List (intercalate)
@@ -33,12 +34,15 @@ commaSeparated = sep . punctuate (pretty ",")
 
 prettyName = pretty . intercalate "." . toList
 
+instance Pretty QName where
+  pretty x = pretty (show x)
+
 instance Pretty Pattern where
   pretty (P.Variable x) = pretty x
   pretty (Data constructor args) =
     if null args
-      then prettyName constructor
-      else hang 2 (sep (prettyName constructor : (prettyArgs <$> args)))
+      then pretty constructor
+      else hang 2 (sep (pretty constructor : (prettyArgs <$> args)))
     where
       pretty' x@(Data constructor (_ : _)) =
         if null args
@@ -54,7 +58,7 @@ instance Pretty Pattern where
   pretty Wildcard = pretty "_"
 
 instance Pretty Expression where
-  pretty (Identifier name) = prettyName name
+  pretty (Identifier name) = pretty name
   pretty (Application x xs) = hang tabSize $ sep $ pretty x : (prettyDisk <$> toList xs)
     where
       prettyDisk (Nothing, x) = pretty x
@@ -67,7 +71,7 @@ instance Pretty Expression where
       ]
   pretty (ForAll names type' y) =
     pretty "forall" <+> align (sep (pretty <$> toList names) <+> pretty ":" <+> pretty type' <> pretty "," <+> pretty y)
-  pretty (Infix x op y) = pretty x <+> pretty "." <> prettyName op <+> pretty y
+  pretty (Infix x op y) = pretty x <+> pretty "." <> pretty op <+> pretty y
   pretty (Tuple xs) = pretty "( " <> align (commaSeparated (pretty <$> xs) <> pretty " )")
   pretty (List xs) = pretty "[ " <> align (commaSeparated (pretty <$> xs) <> pretty " ]")
   pretty (Lambda names x) =

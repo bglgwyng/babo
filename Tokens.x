@@ -44,16 +44,18 @@ tokens :-
   \_                            { \s -> TokenUnderscore }
   @lsymbol                      { \s -> TokenLSym s }
   @usymbol                      { \s -> TokenUSym s }
-  @lsymbolQ                     { \s -> TokenLSymQ (fromList $ wordsByDot s) }
-  @usymbolQ                     { \s -> TokenUSymQ (fromList $ wordsByDot s) }
-  \. @lsymbol                   { \(_:s) -> TokenInfixOp (s :| []) }
-  \. @lsymbolQ                  { \(_:s) -> TokenInfixOp (fromList $ wordsByDot s) }
+  @lsymbolQ                     { \s -> TokenLSymQ (qualified s) }
+  @usymbolQ                     { \s -> TokenUSymQ (qualified s) }
+  \. @lsymbol                   { \(_:s) -> TokenInfixOp ([], s) }
+  \. @lsymbolQ                  { \(_:s) -> TokenInfixOp (qualified s) }
   \,                            { \s -> TokenComma }
   \:                            { \s -> TokenColon }
   \;                            { \s -> TokenSemicolon }
 {
 
 wordsByDot = wordsBy (== '.')
+qualified x = (init xs, last xs)
+  where xs = wordsByDot x
 
 -- The token type:
 data Token = TokenDatatype
@@ -67,8 +69,8 @@ data Token = TokenDatatype
            | TokenString String
            | TokenLSym String
            | TokenUSym String
-           | TokenLSymQ (NonEmpty String)
-           | TokenUSymQ (NonEmpty String)
+           | TokenLSymQ ([String], String)
+           | TokenUSymQ ([String], String)
            | TokenEq
            | TokenArrow
            | TokenForAll
@@ -80,7 +82,7 @@ data Token = TokenDatatype
            | TokenRBracket
            | TokenBackslash
            | TokenUnderscore
-           | TokenInfixOp (NonEmpty String)
+           | TokenInfixOp ([String], String)
            | TokenComma
            | TokenColon
            | TokenSemicolon

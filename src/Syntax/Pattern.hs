@@ -9,7 +9,7 @@ data Implicit
   deriving (Show)
 
 data Pattern
-  = Data Name [Either Implicit Pattern]
+  = Data QName [Either Implicit Pattern]
   | Variable LocalName
   | Tuple [Pattern]
   | List [Pattern]

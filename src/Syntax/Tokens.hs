@@ -10510,6 +10510,8 @@ alex_actions = array (0 :: Int, 51)
 
 
 wordsByDot = wordsBy (== '.')
+qualified x = (init xs, last xs)
+  where xs = wordsByDot x
 
 -- The token type:
 data Token = TokenDatatype
@@ -10523,8 +10525,8 @@ data Token = TokenDatatype
            | TokenString String
            | TokenLSym String
            | TokenUSym String
-           | TokenLSymQ (NonEmpty String)
-           | TokenUSymQ (NonEmpty String)
+           | TokenLSymQ ([String], String)
+           | TokenUSymQ ([String], String)
            | TokenEq
            | TokenArrow
            | TokenForAll
@@ -10536,7 +10538,7 @@ data Token = TokenDatatype
            | TokenRBracket
            | TokenBackslash
            | TokenUnderscore
-           | TokenInfixOp (NonEmpty String)
+           | TokenInfixOp ([String], String)
            | TokenComma
            | TokenColon
            | TokenSemicolon
@@ -10569,10 +10571,10 @@ alex_action_22 =  \s -> TokenBackslash
 alex_action_23 =  \s -> TokenUnderscore 
 alex_action_24 =  \s -> TokenLSym s 
 alex_action_25 =  \s -> TokenUSym s 
-alex_action_26 =  \s -> TokenLSymQ (fromList $ wordsByDot s) 
-alex_action_27 =  \s -> TokenUSymQ (fromList $ wordsByDot s) 
-alex_action_28 =  \(_:s) -> TokenInfixOp (s :| []) 
-alex_action_29 =  \(_:s) -> TokenInfixOp (fromList $ wordsByDot s) 
+alex_action_26 =  \s -> TokenLSymQ (qualified s) 
+alex_action_27 =  \s -> TokenUSymQ (qualified s) 
+alex_action_28 =  \(_:s) -> TokenInfixOp ([], s) 
+alex_action_29 =  \(_:s) -> TokenInfixOp (qualified s) 
 alex_action_30 =  \s -> TokenComma 
 alex_action_31 =  \s -> TokenColon 
 alex_action_32 =  \s -> TokenSemicolon 

@@ -112,9 +112,9 @@ LambdaArguments :: { NonEmpty Argument }
           : LambdaArgument { $1 :| [] }
           | LambdaArgument LambdaArguments { $1 :| toList $2 }
 
-Constructor :: { NonEmpty String }
-          : usym { $1 :| [] }
-          | usymQ { $1 }
+Constructor :: { QName }
+          : usym { QName [] $1 }
+          | usymQ { uncurry QName $1 }
 
 PatternArgument :: { Either P.Implicit P.Pattern }
           : Pattern_ { Right $1 }
@@ -173,7 +173,7 @@ Expression :: { Expression }
           
 BinaryExpression :: { Expression }
           : BinaryExpression '->' BinaryExpression              { Arrow $1 $3 }
-          | BinaryExpression infixOp BinaryExpression           { Infix $1 $2 $3 }
+          | BinaryExpression infixOp BinaryExpression           { Infix $1 (uncurry QName $2) $3 }
           | Juxtaposition { $1 }
 
 Juxtaposition :: { Expression }
@@ -186,10 +186,10 @@ Atom :: { Expression }
           | '(' ')'                     { Literal UnitLiteral } 
           | '(' Expression ',' CommaSeperated ')'       { Tuple ($2 : $4) }
           | '[' CommaSeperated ']'       { List $2 }
-          | lsym                        { Identifier ($1 :| []) }
-          | usym                        { Identifier ($1 :| []) }
-          | lsymQ                       { Identifier $1 }
-          | usymQ                       { Identifier $1 }
+          | lsym                        { Identifier (QName [] $1) }
+          | usym                        { Identifier (QName [] $1) }
+          | lsymQ                       { Identifier (uncurry QName $1) }
+          | usymQ                       { Identifier (uncurry QName $1) }
           | type                        { Type }
           | IntegerLiteral { Literal $1 }
           | FloatLiteral { Literal $1 }

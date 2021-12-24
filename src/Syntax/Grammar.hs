@@ -30,7 +30,7 @@ data HappyAbsSyn t10
 	| HappyAbsSyn15 (LocalName)
 	| HappyAbsSyn16 (NonEmpty LocalName)
 	| HappyAbsSyn18 (NonEmpty Argument)
-	| HappyAbsSyn19 (NonEmpty String)
+	| HappyAbsSyn19 (QName)
 	| HappyAbsSyn20 (Either P.Implicit P.Pattern)
 	| HappyAbsSyn21 (NonEmpty (Either P.Implicit P.Pattern))
 	| HappyAbsSyn22 ([Pattern])
@@ -1493,14 +1493,14 @@ happyReduction_32 _ _  = notHappyAtAll
 happyReduce_33 = happySpecReduce_1  19 happyReduction_33
 happyReduction_33 (HappyTerminal (TokenUSym happy_var_1))
 	 =  HappyAbsSyn19
-		 (happy_var_1 :| []
+		 (QName [] happy_var_1
 	)
 happyReduction_33 _  = notHappyAtAll 
 
 happyReduce_34 = happySpecReduce_1  19 happyReduction_34
 happyReduction_34 (HappyTerminal (TokenUSymQ happy_var_1))
 	 =  HappyAbsSyn19
-		 (happy_var_1
+		 (uncurry QName happy_var_1
 	)
 happyReduction_34 _  = notHappyAtAll 
 
@@ -1788,7 +1788,7 @@ happyReduction_68 (HappyAbsSyn29  happy_var_3)
 	(HappyTerminal (TokenInfixOp happy_var_2))
 	(HappyAbsSyn29  happy_var_1)
 	 =  HappyAbsSyn29
-		 (Infix happy_var_1 happy_var_2 happy_var_3
+		 (Infix happy_var_1 (uncurry QName happy_var_2) happy_var_3
 	)
 happyReduction_68 _ _ _  = notHappyAtAll 
 
@@ -1865,28 +1865,28 @@ happyReduction_76 _ _ _  = notHappyAtAll
 happyReduce_77 = happySpecReduce_1  32 happyReduction_77
 happyReduction_77 (HappyTerminal (TokenLSym happy_var_1))
 	 =  HappyAbsSyn29
-		 (Identifier (happy_var_1 :| [])
+		 (Identifier (QName [] happy_var_1)
 	)
 happyReduction_77 _  = notHappyAtAll 
 
 happyReduce_78 = happySpecReduce_1  32 happyReduction_78
 happyReduction_78 (HappyTerminal (TokenUSym happy_var_1))
 	 =  HappyAbsSyn29
-		 (Identifier (happy_var_1 :| [])
+		 (Identifier (QName [] happy_var_1)
 	)
 happyReduction_78 _  = notHappyAtAll 
 
 happyReduce_79 = happySpecReduce_1  32 happyReduction_79
 happyReduction_79 (HappyTerminal (TokenLSymQ happy_var_1))
 	 =  HappyAbsSyn29
-		 (Identifier happy_var_1
+		 (Identifier (uncurry QName happy_var_1)
 	)
 happyReduction_79 _  = notHappyAtAll 
 
 happyReduce_80 = happySpecReduce_1  32 happyReduction_80
 happyReduction_80 (HappyTerminal (TokenUSymQ happy_var_1))
 	 =  HappyAbsSyn29
-		 (Identifier happy_var_1
+		 (Identifier (uncurry QName happy_var_1)
 	)
 happyReduction_80 _  = notHappyAtAll 
 

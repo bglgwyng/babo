@@ -10,7 +10,7 @@ import Syntax.Literal
 
 data Term
   = Free Id
-  | Global Name
+  | Global QName
   | Local Index
   | Meta Id
   | Type
@@ -22,7 +22,7 @@ data Term
 
 instance Show Term where
   showsPrec _ (Free i) = shows i . showString "$"
-  showsPrec _ (Global xs) = showString $ intercalate "." $ toList xs
+  showsPrec _ (Global x) = shows x
   showsPrec _ (Local i) = shows i . showString "!"
   showsPrec _ (Meta i) = shows i . showString "?"
   showsPrec _ Type = showString "Type"
@@ -31,15 +31,15 @@ instance Show Term where
   showsPrec prec (Pi t1 t2) = showParen (prec > 1) $ showsPrec 2 t1 . showString " -> " . showsPrec 1 t2
   showsPrec _ (Case t1 t2) =
     showString "case " . shows t1
-      . showString " {"
-      . foldl1 (\x y -> x . shows "; " . y) (showAlt <$> t2)
+      . showString " { "
+      . foldl1 (\x y -> x . showString "; " . y) (showAlt <$> t2)
       . showString " }"
     where
       showAlt :: (Pattern, Term) -> ShowS
       showAlt (p, t) = shows p . showString " -> " . shows t
 
 data Pattern
-  = Constructor Name
+  = Constructor QName
   | Literal Literal
   | Self
   deriving (Eq, Ord)

@@ -35,11 +35,11 @@ import Syntax.Literal
 import Syntax.Pattern
 import Prelude hiding (head, tail)
 
-pairNew = T.Global ("Prelude" :| ["Pair", "New"])
+pairNew = T.Global (QName ["Prelude", "Pair"] "New")
 
-listCons = T.Global ("Prelude" :| ["List", "Cons"])
+listCons = T.Global (QName ["Prelude", "List"] "Cons")
 
-listNil = T.Global ("Prelude" :| ["List", "Nil"])
+listNil = T.Global (QName ["Prelude", "List"] "Nil")
 
 extend = ("_" :)
 
@@ -143,13 +143,13 @@ desugarExpression globalCtx = desugar'
       AST.Parenthesized x -> desugar'' x
       where
         desugar'' = desugar' ctx
-        lookup :: Name -> Maybe T.Term
-        lookup x'@(x :| xs) =
-          ( if null xs
-              then T.Local <$> elemIndex x ctx
+        lookup :: QName -> Maybe T.Term
+        lookup qname@QName {namespace, Common.name} =
+          ( if null namespace
+              then T.Local <$> elemIndex name ctx
               else Nothing
           )
-            <|> if x' `member` globalCtx then Just (T.Global x') else Nothing
+            <|> if qname `member` globalCtx then Just (T.Global qname) else Nothing
     lambda :: LocalContext -> [AST.Argument] -> AST.Expression -> (Gen Id) T.Term
     lambda ctx xs body = do
       (args, context) <- desugarArguments globalCtx ctx xs

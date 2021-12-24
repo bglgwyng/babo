@@ -4,7 +4,7 @@
 
 module Elaborate where
 
-import Common (Id)
+import Common (Id, QName (QName))
 import Context
 import Control.Arrow ((&&&), (>>>))
 import Control.Monad (foldM)
@@ -35,8 +35,8 @@ elaborate' ctx AST.DataDeclaration {name, args, maybeType, variants} =
     pure $
       Just $
         fromList
-          ( (name :| [], TypeConstructor $ foldr T.Pi type' args') :
-            (variants <&> (\Variant {name = name'} -> (name' :| [], DataConstructor (T.Global (name :| [])))))
+          ( (QName [] name, TypeConstructor $ foldr T.Pi type' args') :
+            (variants <&> (\Variant {name = name'} -> (QName [] name', DataConstructor (T.Global (QName [] name)))))
           )
 elaborate' ctx AST.Declaration {name, args, type'} =
   do
@@ -44,7 +44,7 @@ elaborate' ctx AST.Declaration {name, args, type'} =
     type' <- lift $ desugarExpression ctx ctx' type'
     pure $
       infer' ctx mempty (foldr T.Pi type' args') T.Type
-        <&> (fst >>> (M.singleton (name :| []) . Context.Declaration))
+        <&> (fst >>> (M.singleton (QName [] name) . Context.Declaration))
 elaborate' ctx AST.Definition {name, args, maybeType, value} =
   do
     (args', ctx') <- lift $ desugarArguments ctx [] args
@@ -52,7 +52,7 @@ elaborate' ctx AST.Definition {name, args, maybeType, value} =
     value' <- foldr T.Lam `flip` args' <$> lift (desugarExpression ctx ctx' value)
     pure $
       infer' ctx mempty value' type'
-        <&> (swap >>> (M.singleton (name :| []) . uncurry Context.Definition))
+        <&> (swap >>> (M.singleton (QName [] name) . uncurry Context.Definition))
 elaborate' ctx AST.Import {} = undefined
 
 elaborate :: AST.Source -> Maybe GlobalContext
