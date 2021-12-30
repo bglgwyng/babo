@@ -154,7 +154,7 @@ Patterns :: { NonEmpty P.Pattern }
           | Pattern ',' Patterns { $1 :| toList $3 }
           
 Case :: { Case }
-          : Pattern '->' Expression { ($1, $3) }
+          : Pattern '->' Expression { ([$1], $3) }
 
 Cases :: { [Case] }
           : {- empty -} { [] }

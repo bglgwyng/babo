@@ -97,7 +97,7 @@ isClosed t = case t of
   Ap l r -> isClosed l && isClosed r
   Lam tp body -> isClosed tp && isClosed body
   Pi tp body -> isClosed tp && isClosed body
-  Case tp alts -> isClosed tp && all (isClosed . snd) alts
+  Case x alts -> isClosed x && all (isClosed . snd) alts
 
 -- | Implement reduction for the language. Given a term, normalize it.
 -- This boils down mainly to applying lambdas to their arguments and all

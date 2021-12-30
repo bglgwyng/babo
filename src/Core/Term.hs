@@ -29,8 +29,8 @@ instance Show Term where
   showsPrec prec (Ap t1 t2) = showParen (prec > 3) $ showsPrec 3 t1 . showString " " . showsPrec 4 t2
   showsPrec prec (Lam t1 t2) = showParen (prec > 0) $ showString "\\_: " . shows t1 . showString " -> " . shows t2
   showsPrec prec (Pi t1 t2) = showParen (prec > 1) $ showsPrec 2 t1 . showString " -> " . showsPrec 1 t2
-  showsPrec _ (Case t1 t2) =
-    showString "case " . shows t1
+  showsPrec _ (Case x t2) =
+    showString "case " . shows x
       . showString " { "
       . foldl1 (\x y -> x . showString "; " . y) (showAlt <$> t2)
       . showString " }"

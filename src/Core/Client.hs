@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TupleSections #-}
 
 module Core.Client (infer, infer') where
@@ -7,10 +8,12 @@ module Core.Client (infer, infer') where
 import Common
 import Context
 import Control.Applicative
+import Control.Arrow ((>>>))
 import Control.Monad
 import Control.Monad.Gen
 import Control.Monad.Trans
 import Core.Unification
+import Data.Function ((&))
 import Data.Functor
 import qualified Data.Map as M
 import Data.Maybe
@@ -27,12 +30,7 @@ typeOf gcxt mcxt cxt t =
     Global i ->
       maybe
         undefined
-        ( \case
-            Declaration x -> pure (x, mempty)
-            Definition x _ -> pure (x, mempty)
-            DataConstructor x -> pure (x, mempty)
-            TypeConstructor x -> pure (x, mempty)
-        )
+        (pure . (type' >>> (,mempty)))
         $ M.lookup i gcxt
     Type -> pure (Type, S.empty)
     Ap l r -> do
@@ -41,7 +39,7 @@ typeOf gcxt mcxt cxt t =
         Pi from to -> do
           optional (typeOf' mcxt cxt r)
             <&> (subst r 0 to,) . (cl <>) . foldMap (\(tpr, cr) -> cr <> S.singleton (from, tpr))
-        t -> error $ show t
+        t -> error $ show (l, r)
     Lam arg b -> do
       v <- lift gen
       (to, cs) <-
@@ -65,7 +63,7 @@ typeOf gcxt mcxt cxt t =
             <> foldMap (S.singleton . (Type,) . fst) maybeFromUnification
             <> S.singleton (Type, toTp)
         )
-    Case x cases -> typeOf' mcxt cxt (snd $ head cases)
+    Case _ cases -> typeOf' mcxt cxt (snd $ head cases)
   where
     typeOf' = typeOf gcxt
 

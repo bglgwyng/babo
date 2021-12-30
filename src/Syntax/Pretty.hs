@@ -12,14 +12,17 @@ import Prettyprinter
   ( Doc,
     Pretty (pretty),
     align,
+    defaultLayoutOptions,
     hang,
     indent,
+    layoutPretty,
     line,
     punctuate,
     sep,
     vsep,
     (<+>),
   )
+import Prettyprinter.Render.String (renderString)
 import Syntax.AST
 import Syntax.AST as AST
 import Syntax.Grammar hiding (indent)
@@ -176,3 +179,6 @@ instance Pretty Literal where
 
 instance Pretty Source where
   pretty (Source decls) = vsep $ decls <&> pretty
+
+instance Show Expression where
+  show = renderString . layoutPretty defaultLayoutOptions . pretty

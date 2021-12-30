@@ -12,19 +12,22 @@ module Syntax.Desugar where
 import Common
 import Context
 import Control.Applicative
-import Control.Arrow (Arrow (first, (&&&)), (>>>))
-import qualified Control.Exception as T
+import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
 import Control.Monad (foldM, forM, unless)
 import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), MonadTrans (lift), cont, runCont)
 import Control.Monad.Gen (Gen, GenT, gen)
 import qualified Core.Term as T
 import Data.Bifunctor (bimap)
+import Data.Either (fromLeft)
+import Data.Either.Extra (fromRight)
+import Data.Function (on)
 import Data.Functor ((<&>))
+import Data.List (groupBy)
 import Data.List.Extra (elemIndex)
-import Data.List.NonEmpty (NonEmpty (..), groupBy, groupWith, groupWith1, head, nonEmpty, tail, toList, uncons)
+import Data.List.NonEmpty (NonEmpty (..), groupWith, groupWith1, nonEmpty, toList, uncons)
 import Data.List.NonEmpty.Extra (groupWith)
-import Data.Map (Map, fromList, member, singleton)
-import Data.Maybe (fromJust)
+import Data.Map (Map, delete, fromList, member, singleton)
+import Data.Maybe (catMaybes, fromJust)
 import Data.Tuple.Extra (dupe, firstM)
 import Debug.Trace
 import GHC.Base (undefined)
@@ -33,18 +36,26 @@ import Syntax.AST (TopLevelStatement (..))
 import qualified Syntax.AST as AST
 import Syntax.Literal
 import Syntax.Pattern
-import Prelude hiding (head, tail)
+import qualified Syntax.Pattern as P
+import Syntax.Pretty
 
+pairNew :: T.Term
 pairNew = T.Global (QName ["Prelude", "Pair"] "New")
 
+listCons :: T.Term
 listCons = T.Global (QName ["Prelude", "List"] "Cons")
 
+listNil :: T.Term
 listNil = T.Global (QName ["Prelude", "List"] "Nil")
 
+extend :: [String] -> [String]
 extend = ("_" :)
 
--- groupKV :: (a -> (k, v)) -> [a] -> [(k, NonEmpty v)]
--- groupKV f = (f <$>) >>> groupWith fst >>> ((fst . head &&& (snd <$>)) <$>)
+setAt :: Int -> a -> [a] -> [a]
+setAt i x xs = take i xs ++ [x] ++ drop (i + 1) xs
+
+data Match = Constructor QName | Literal Literal | Self
+  deriving (Eq, Ord, Show)
 
 desugarExpression :: GlobalContext -> LocalContext -> AST.Expression -> Gen Id T.Term
 desugarExpression globalCtx = desugar'
@@ -68,66 +79,48 @@ desugarExpression globalCtx = desugar'
         T.Pi <$> desugar'' x <*> desugar' (extend ctx) y
       AST.Let name value body ->
         T.Ap <$> (T.Lam <$> (T.Meta <$> gen) <*> desugar' (name : ctx) body) <*> desugar'' value
-      AST.Case x cases -> do
-        x' <- desugar'' x
-        T.Case x'
-          <$> forM
-            cases
-            ( \(pattern, y) ->
-                ( (,)
-                    <$> ( case pattern of
-                            Data con xs -> pure $ T.Constructor con
-                            _ -> undefined
-                        )
-                )
-                  <*> desugar'' y
-            )
+      AST.Case x cases ->
+        T.Ap <$> (T.Lam <$> (T.Meta <$> gen) <*> go [0] ((ctx,) <$> cases)) <*> desugar'' x
         where
-          desugarPattern :: LocalContext -> AST.Pattern -> T.Pattern
-          desugarPattern ctx = \case
-            Data con xs ->
-              T.Constructor con
-            Wildcard ->
-              T.Self
-            _ ->
-              undefined
-          go :: LocalContext -> Int -> NonEmpty AST.Expression -> [(NonEmpty AST.Pattern, AST.Expression)] -> Gen Id T.Term
-          go ctx shift (x :| xs) cases = do
-            let (patterns, bodies) = unzip cases
-            let key :: AST.Pattern -> T.Pattern
-                key = desugarPattern ctx
-            let groupedCases =
-                  groupBy
-                    ( \(x :| _, _) (y :| _, _) ->
-                        case (x, y) of
-                          (Data x _, Data y _) -> x == y
-                          (Variable _, Variable _) -> True
-                          (Literal x, Literal y) -> x == y
-                          (Wildcard, Wildcard) -> True
+          go :: [Int] -> [(LocalContext, AST.Case)] -> Gen Id T.Term
+          go xs [(ctx, ([], body))] = desugar' ctx body
+          go (x : xs) [(ctx, (Variable name : ys, body))] = go xs [(setAt x name ctx, (ys, body))]
+          go (x : xs) branches =
+            T.Case (T.Local x)
+              <$> forM
+                (groupBy (on equivalent (head . fst . snd)) branches)
+                ( \cases ->
+                    let ((_, (headCase : _, _)) : _) = cases
+                     in case headCase of
+                          Data x argPats ->
+                            (T.Constructor x,)
+                              <$> go ([arity - 1, arity - 2 .. 0] ++ ((arity +) <$> xs)) (introduce <$> cases)
+                            where
+                              -- FIXME:
+                              arity = length argPats
+                              introduce :: (LocalContext, AST.Case) -> (LocalContext, AST.Case)
+                              introduce (locals, (Data _ argPats : patterns, body)) =
+                                ( replicate arity "" <> locals,
+                                  ((fromRight undefined <$> argPats) <> patterns, body)
+                                )
+                              introduce _ = undefined
+                          Variable name -> (T.Self,) <$> go xs (introduce <$> cases)
+                            where
+                              introduce :: (LocalContext, AST.Case) -> (LocalContext, AST.Case)
+                              introduce (locals, (Variable name : patterns, body)) =
+                                (setAt x name locals, (patterns, body))
+                              introduce _ = undefined
                           _ -> undefined
-                    )
-                    cases
-            T.Case
-              <$> desugar'' x
-              <*> forM
-                groupedCases
-                ( \ys -> do
-                    let ((y :| _, _) :| _) = ys
-                    let branches = traverse (firstM (nonEmpty . tail)) ys
-                    let k :: LocalContext -> Int -> Gen Id T.Term
-                        k cxt shift = case (xs, branches) of
-                          (x : xs, Just branches') ->
-                            go ctx 0 (x :| xs) (toList branches')
-                          ([], Nothing) ->
-                            desugar' cxt (snd (head ys))
-                          _ -> undefined
-                    case y of
-                      Data x _ -> (T.Constructor x,) <$> k [] 0
-                      Variable x -> (T.Self,) <$> k (setAt shift x ctx) 0
-                        where
-                          setAt i x xs = take i xs ++ x : drop (i + 1) xs
-                      _ -> undefined
                 )
+          go x y = error (show (x, y))
+          equivalent :: AST.Pattern -> AST.Pattern -> Bool
+          equivalent (Data x _) (Data y _) = x == y
+          equivalent (P.Literal x) (P.Literal y) = x == y
+          equivalent (Variable _) (Variable _) = True
+          equivalent (Variable _) Wildcard = True
+          equivalent Wildcard (Variable _) = True
+          equivalent Wildcard Wildcard = True
+          equivalent _ _ = False
       AST.Lambda args body -> lambda ctx (toList args) body
       AST.LambdaCase args cases -> lambda ctx args undefined
       AST.Infix x op y ->
@@ -156,10 +149,6 @@ desugarExpression globalCtx = desugar'
       body' <- desugarExpression globalCtx context body
       pure $ foldr T.Lam body' args
 
--- lambda ctx ((names, type') : xs) = do
---   type'' <- lift $ maybe (T.Meta <$> gen) (desugar' ctx) type'
---   ContT $ fmap (T.Lam type'') . runContT (lambda (toList names <> ctx) xs)
-
 desugarArguments :: GlobalContext -> LocalContext -> [AST.Argument] -> (Gen Id) ([T.Term], LocalContext)
 desugarArguments globalCtx = go
   where
@@ -168,26 +157,4 @@ desugarArguments globalCtx = go
     go ctx ((names, type', _) : xs) = do
       type'' <- maybe (T.Meta <$> gen) (desugarExpression globalCtx ctx) type'
       (args, context) <- go (toList names <> ctx) xs
-      pure $ (replicate (length names) type'' <> args, context <> reverse (toList names))
-
--- ContT $ fmap (T.Lam type'') . runContT (go (toList names <> ctx) xs)
-
--- desugar :: AST.Source -> Gen Id GlobalContext
--- desugar (AST.Source xs) = foldM (\xs y -> (xs <>) <$> desugar' xs y) mempty xs
---   where
--- desugar' :: GlobalContext -> AST.TopLevelStatement -> Gen Id GlobalContext
--- desugar' ctx AST.DataDeclaration {name, variants} =
---   pure $
---     fromList $
---       (name :| [], TypeConstructor T.Uni) :
---       (variants <&> (\(_, x, _, _) -> (x :| [], DataConstructor T.Uni)))
--- desugar' ctx AST.Declaration {name, type'} =
---   singleton (name :| []) . Context.Declaration <$> desugarExpression ctx type'
--- desugar' ctx AST.Definition {name, maybeType, value} = do
---   x <- forM maybeType (desugarExpression ctx)
---   y <- desugarExpression ctx value
---   pure $
---     singleton
---       (name :| [])
---       (Context.Definition x y)
--- desugar' ctx AST.Import {} = undefined
+      pure (replicate (length names) type'' <> args, context <> reverse (toList names))

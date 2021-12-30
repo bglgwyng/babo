@@ -31,12 +31,13 @@ elaborate' :: GlobalContext -> AST.TopLevelStatement -> UnifyM (Maybe GlobalCont
 elaborate' ctx AST.DataDeclaration {name, args, maybeType, variants} =
   do
     (args', ctx') <- lift $ desugarArguments ctx [] args
-    type' <- lift $ maybe (pure T.Type) (desugarExpression ctx []) maybeType
+    bodyType <- lift $ maybe (pure T.Type) (desugarExpression ctx []) maybeType
+    let type' = foldr T.Pi bodyType args'
     pure $
       Just $
         fromList
-          ( (QName [] name, TypeConstructor $ foldr T.Pi type' args') :
-            (variants <&> (\Variant {name = name'} -> (QName [] name', DataConstructor (T.Global (QName [] name)))))
+          ( (QName [] name, TypeConstructor {type'}) :
+            (variants <&> (\Variant {name = name'} -> (QName [] name', DataConstructor {type' = T.Global (QName [] name)})))
           )
 elaborate' ctx AST.Declaration {name, args, type'} =
   do

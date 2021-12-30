@@ -1676,7 +1676,7 @@ happyReduction_56 (HappyAbsSyn29  happy_var_3)
 	_
 	(HappyAbsSyn23  happy_var_1)
 	 =  HappyAbsSyn27
-		 ((happy_var_1, happy_var_3)
+		 (([happy_var_1], happy_var_3)
 	)
 happyReduction_56 _ _ _  = notHappyAtAll 
 

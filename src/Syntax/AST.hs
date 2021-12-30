@@ -21,16 +21,16 @@ import Data.List.NonEmpty (NonEmpty, toList)
 import GHC.Generics hiding (Constructor)
 import GHC.IOArray (unsafeWriteIOArray)
 import GHC.OverloadedLabels (IsLabel (fromLabel))
+import Prettyprinter (pretty)
 import Prettyprinter.Render.String (renderString)
-import Prettyprinter.Render.Text (putDoc)
+import Prettyprinter.Render.Text (putDoc, renderLazy)
 import Syntax.Literal
 import Syntax.Pattern (Pattern)
 
 newtype Annotation
   = Annotation Expression
-  deriving (Show)
 
-type Case = (Pattern, Expression)
+type Case = ([Pattern], Expression)
 
 type Disk = (Maybe LocalName, Expression)
 
@@ -49,7 +49,6 @@ data Expression
   | List [Expression]
   | Literal Literal
   | Parenthesized Expression
-  deriving (Show)
 
 -- TODO: Better name
 data ImportRule
@@ -65,7 +64,6 @@ data Variant = Variant
     args :: [Argument],
     maybeType :: Maybe Expression
   }
-  deriving (Show)
 
 data TopLevelStatement
   = DataDeclaration

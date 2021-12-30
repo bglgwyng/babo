@@ -11,6 +11,7 @@ import Core.Client (infer, infer')
 import Core.Term (Term (..))
 import Core.Unification (driver, runUnifyM, unify)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map (assocs, toList)
 import Data.Maybe (listToMaybe)
 import Data.Set (fromList)
 import Elaborate (elaborate)
@@ -27,4 +28,6 @@ main :: IO ()
 main = do
   s <- getContents
   let ast = parse (scanTokens s)
-  print $ elaborate ast
+  case elaborate ast of
+    Just xs -> mapM_ print (toList xs)
+    Nothing -> putStrLn "Something wrong"
