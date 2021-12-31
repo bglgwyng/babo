@@ -16,18 +16,20 @@ import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
 import Control.Monad (foldM, forM, unless)
 import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), MonadTrans (lift), cont, runCont)
 import Control.Monad.Gen (Gen, GenT, gen)
+import Core.Term (Inductive (..))
 import qualified Core.Term as T
 import Data.Bifunctor (bimap)
+import Data.Bool (bool)
 import Data.Either (fromLeft)
 import Data.Either.Extra (fromRight)
 import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List (groupBy)
-import Data.List.Extra (elemIndex)
+import Data.List.Extra (allSame, elemIndex)
 import Data.List.NonEmpty (NonEmpty (..), groupWith, groupWith1, nonEmpty, toList, uncons)
 import Data.List.NonEmpty.Extra (groupWith)
-import Data.Map (Map, delete, fromList, member, singleton)
-import Data.Maybe (catMaybes, fromJust)
+import Data.Map as M (Map, delete, fromList, lookup, member, singleton)
+import Data.Maybe (catMaybes, fromJust, fromMaybe)
 import Data.Tuple.Extra (dupe, firstM)
 import Debug.Trace
 import GHC.Base (undefined)
@@ -67,7 +69,7 @@ desugarExpression globalCtx = desugar'
         spine <- forM spine (desugar'' . snd)
         pure $ foldl T.Ap head' spine
       AST.Identifier x ->
-        pure $ fromJust (lookup x)
+        pure $ fromMaybe (error (show x)) (lookup x)
       AST.ForAll xs type' body ->
         forall ctx (toList xs)
         where
@@ -86,7 +88,8 @@ desugarExpression globalCtx = desugar'
           go xs [(ctx, ([], body))] = desugar' ctx body
           go (x : xs) [(ctx, (Variable name : ys, body))] = go xs [(setAt x name ctx, (ys, body))]
           go (x : xs) branches =
-            T.Case (T.Local x)
+            -- FIXME: remove fromJust
+            T.Case (T.Local x) inductive
               <$> forM
                 (groupBy (on equivalent (head . fst . snd)) branches)
                 ( \cases ->
@@ -112,6 +115,18 @@ desugarExpression globalCtx = desugar'
                               introduce _ = undefined
                           _ -> undefined
                 )
+            where
+              inductive =
+                let headPatterns = head . fst . snd <$> branches
+                    constructorPatterns = catMaybes ((\case Data name _ -> Just name; _ -> Nothing) <$> headPatterns)
+                    inductives =
+                      traverse
+                        (\case Just (DataConstructor _ x) -> Just x; _ -> Nothing)
+                        (flip M.lookup globalCtx <$> constructorPatterns)
+                 in do
+                      traceShow ("head", headPatterns) pure ()
+                      x : _ <- inductives
+                      pure x
           go x y = error (show (x, y))
           equivalent :: AST.Pattern -> AST.Pattern -> Bool
           equivalent (Data x _) (Data y _) = x == y
@@ -146,15 +161,19 @@ desugarExpression globalCtx = desugar'
     lambda :: LocalContext -> [AST.Argument] -> AST.Expression -> (Gen Id) T.Term
     lambda ctx xs body = do
       (args, context) <- desugarArguments globalCtx ctx xs
+      let argTypes = (\(T.Argument _ x _) -> x) <$> args
       body' <- desugarExpression globalCtx context body
-      pure $ foldr T.Lam body' args
+      pure $ foldr T.Lam body' argTypes
 
-desugarArguments :: GlobalContext -> LocalContext -> [AST.Argument] -> (Gen Id) ([T.Term], LocalContext)
+desugarArguments :: GlobalContext -> LocalContext -> [AST.Argument] -> (Gen Id) ([T.Argument], LocalContext)
 desugarArguments globalCtx = go
   where
-    go :: LocalContext -> [AST.Argument] -> (Gen Id) ([T.Term], LocalContext)
+    go :: LocalContext -> [AST.Argument] -> (Gen Id) ([T.Argument], LocalContext)
     go ctx [] = pure ([], [])
     go ctx ((names, type', _) : xs) = do
       type'' <- maybe (T.Meta <$> gen) (desugarExpression globalCtx ctx) type'
       (args, context) <- go (toList names <> ctx) xs
-      pure (replicate (length names) type'' <> args, context <> reverse (toList names))
+      pure
+        ( toList ((\x -> T.Argument x type'' T.Explicit) <$> names) <> args,
+          context <> reverse (toList names)
+        )

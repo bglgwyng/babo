@@ -18,6 +18,7 @@ import Data.Functor
 import qualified Data.Map as M
 import Data.Maybe
 import Data.Monoid hiding (Ap)
+import Data.Set (fromList)
 import qualified Data.Set as S
 import Debug.Trace
 
@@ -63,7 +64,10 @@ typeOf gcxt mcxt cxt t =
             <> foldMap (S.singleton . (Type,) . fst) maybeFromUnification
             <> S.singleton (Type, toTp)
         )
-    Case _ cases -> typeOf' mcxt cxt (snd $ head cases)
+    Case _ _ cases -> do
+      (type', cs) <- typeOf' mcxt cxt (snd $ head cases)
+      (types, css) <- unzip <$> forM (snd <$> tail cases) (typeOf' mcxt cxt)
+      pure (type', cs <> foldl (<>) mempty css <> fromList ((type',) <$> types))
   where
     typeOf' = typeOf gcxt
 

@@ -16,7 +16,7 @@ import Core.Unification (UnifyM, runUnifyM)
 import Data.Bifunctor
 import Data.Functor
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Map (fromList)
+import Data.Map (fromList, singleton)
 import qualified Data.Map as M
 import Data.Maybe (listToMaybe)
 import Data.Traversable (forM)
@@ -28,29 +28,55 @@ import qualified Syntax.AST as AST
 import Syntax.Desugar
 
 elaborate' :: GlobalContext -> AST.TopLevelStatement -> UnifyM (Maybe GlobalContext)
-elaborate' ctx AST.DataDeclaration {name, args, maybeType, variants} =
+elaborate' ctx AST.DataDeclaration {name, args = params, maybeType, variants} =
   do
-    (args', ctx') <- lift $ desugarArguments ctx [] args
+    (params', ctx') <- lift $ desugarArguments ctx [] params
+    let paramsArity = length params'
     bodyType <- lift $ maybe (pure T.Type) (desugarExpression ctx []) maybeType
-    let type' = foldr T.Pi bodyType args'
+    let type' = foldr T.Pi bodyType ((\(T.Argument _ x _) -> x) <$> params')
+        typeName = QName [] name
+        typeDefinition = singleton typeName TypeConstructor {type'}
+    variants' <-
+      forM
+        variants
+        ( \Variant {name = name', args} -> do
+            (argTypes, ctx') <- lift $ desugarArguments (ctx <> typeDefinition) ((\(T.Argument x _ _) -> x) <$> params') args
+            pure
+              ( QName [] name',
+                argTypes,
+                foldl
+                  T.Ap
+                  (T.Global (QName [] name))
+                  (T.Local . (+ length argTypes) <$> [paramsArity - 1, paramsArity - 2 .. 0])
+              )
+        )
+    let inductive =
+          T.Inductive
+            { name = typeName,
+              T.variants = variants',
+              T.parameters = params',
+              T.indices = []
+            }
     pure $
       Just $
         fromList
-          ( (QName [] name, TypeConstructor {type'}) :
-            (variants <&> (\Variant {name = name'} -> (QName [] name', DataConstructor {type' = T.Global (QName [] name)})))
-          )
+          ((typeName, TypeConstructor {type', inductive}) : ((\(x, _, y) -> (x, DataConstructor y inductive)) <$> variants'))
 elaborate' ctx AST.Declaration {name, args, type'} =
   do
     (args', ctx') <- lift $ desugarArguments ctx [] args
+    -- FIXME:
+    let argTypes = (\(T.Argument _ x _) -> x) <$> args'
     type' <- lift $ desugarExpression ctx ctx' type'
     pure $
-      infer' ctx mempty (foldr T.Pi type' args') T.Type
+      infer' ctx mempty (foldr T.Pi type' argTypes) T.Type
         <&> (fst >>> (M.singleton (QName [] name) . Context.Declaration))
 elaborate' ctx AST.Definition {name, args, maybeType, value} =
   do
     (args', ctx') <- lift $ desugarArguments ctx [] args
-    type' <- foldr T.Pi `flip` args' <$> lift (maybe (T.Meta <$> gen) (desugarExpression ctx ctx') maybeType)
-    value' <- foldr T.Lam `flip` args' <$> lift (desugarExpression ctx ctx' value)
+    -- FIXME:
+    let argTypes = (\(T.Argument _ x _) -> x) <$> args'
+    type' <- foldr T.Pi `flip` argTypes <$> lift (maybe (T.Meta <$> gen) (desugarExpression ctx ctx') maybeType)
+    value' <- foldr T.Lam `flip` argTypes <$> lift (desugarExpression ctx ctx' value)
     pure $
       infer' ctx mempty value' type'
         <&> (swap >>> (M.singleton (QName [] name) . uncurry Context.Definition))
