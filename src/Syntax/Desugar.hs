@@ -18,6 +18,7 @@ import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), Mo
 import Control.Monad.Gen (Gen, GenT, gen)
 import Core.Term (Inductive (..))
 import qualified Core.Term as T
+import Core.Unification (subst)
 import Data.Bifunctor (bimap)
 import Data.Bool (bool)
 import Data.Either (fromLeft)
@@ -31,7 +32,6 @@ import Data.List.NonEmpty.Extra (groupWith)
 import Data.Map as M (Map, delete, fromList, lookup, member, singleton)
 import Data.Maybe (catMaybes, fromJust, fromMaybe)
 import Data.Tuple.Extra (dupe, firstM)
-import Debug.Trace
 import GHC.Base (undefined)
 import GHC.Err (undefined)
 import Syntax.AST (TopLevelStatement (..))
@@ -82,8 +82,9 @@ desugarExpression globalCtx = desugar'
       AST.Let name value body ->
         T.Ap <$> (T.Lam <$> (T.Meta <$> gen) <*> desugar' (name : ctx) body) <*> desugar'' value
       AST.Case x cases ->
-        T.Ap <$> (T.Lam <$> (T.Meta <$> gen) <*> go [0] ((ctx,) <$> cases)) <*> desugar'' x
+        subst <$> desugar'' x <*> pure 0 <*> go [0] ((ctx,) <$> cases)
         where
+          -- T.Ap <$> (T.Lam <$> (T.Meta <$> gen) <*> go [0] ((ctx,) <$> cases)) <*> desugar'' x
           go :: [Int] -> [(LocalContext, AST.Case)] -> Gen Id T.Term
           go xs [(ctx, ([], body))] = desugar' ctx body
           go (x : xs) [(ctx, (Variable name : ys, body))] = go xs [(setAt x name ctx, (ys, body))]
@@ -124,7 +125,6 @@ desugarExpression globalCtx = desugar'
                         (\case Just (DataConstructor _ x) -> Just x; _ -> Nothing)
                         (flip M.lookup globalCtx <$> constructorPatterns)
                  in do
-                      traceShow ("head", headPatterns) pure ()
                       x : _ <- inductives
                       pure x
           go x y = error (show (x, y))

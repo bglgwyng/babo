@@ -8,25 +8,28 @@ module Core.Client (infer, infer') where
 import Common
 import Context
 import Control.Applicative
-import Control.Arrow ((>>>))
+import Control.Arrow (Arrow (first, second), (>>>))
 import Control.Monad
 import Control.Monad.Gen
 import Control.Monad.Trans
+import Core.Term (Inductive (..))
+import qualified Core.Term as T
 import Core.Unification
+import Data.Foldable (find)
 import Data.Function ((&))
 import Data.Functor
+import Data.List.Extra (snoc)
 import qualified Data.Map as M
 import Data.Maybe
 import Data.Monoid hiding (Ap)
 import Data.Set (fromList)
 import qualified Data.Set as S
-import Debug.Trace
 
 typeOf :: GlobalContext -> M.Map Id Term -> M.Map Id Term -> Term -> UnifyM (Term, S.Set Constraint)
 typeOf gcxt mcxt cxt t =
   case t of
     Local i -> mzero
-    Free i -> foldMap (\x -> return (x, S.empty)) $ M.lookup i cxt
+    Free i -> foldMap (pure . (,S.empty)) $ M.lookup i cxt
     Meta i -> mzero
     Global i ->
       maybe
@@ -35,12 +38,21 @@ typeOf gcxt mcxt cxt t =
         $ M.lookup i gcxt
     Type -> pure (Type, S.empty)
     Ap l r -> do
-      (tpl, cl) <- typeOf' mcxt cxt l
-      case tpl of
-        Pi from to -> do
+      ( do
+          (tpl, cl) <- typeOf' mcxt cxt l
+          let (from, to) = case tpl of
+                Pi from to -> (from, to)
+                _ -> error "typeOf: Ap: not a Pi"
           optional (typeOf' mcxt cxt r)
-            <&> (subst r 0 to,) . (cl <>) . foldMap (\(tpr, cr) -> cr <> S.singleton (from, tpr))
-        t -> error $ show (l, r)
+            <&> ((subst r 0 to,) . (cl <>) . foldMap (\(tpr, cr) -> cr <> S.singleton (from, tpr)))
+        )
+        <|>
+        -- NOTE: when `typeOf' mcxt cxt l` failed
+        do
+          let Lam argType body = l
+          (rType, cs1) <- typeOf' mcxt cxt r
+          (type', cs2) <- typeOf' mcxt cxt (subst r 0 body)
+          pure (type', cs1 <> cs2 <> S.singleton (rType, argType))
     Lam arg b -> do
       v <- lift gen
       (to, cs) <-
@@ -64,10 +76,40 @@ typeOf gcxt mcxt cxt t =
             <> foldMap (S.singleton . (Type,) . fst) maybeFromUnification
             <> S.singleton (Type, toTp)
         )
-    Case _ _ cases -> do
-      (type', cs) <- typeOf' mcxt cxt (snd $ head cases)
-      (types, css) <- unzip <$> forM (snd <$> tail cases) (typeOf' mcxt cxt)
-      pure (type', cs <> foldl (<>) mempty css <> fromList ((type',) <$> types))
+    Case x (Just inductive) cases -> do
+      (type', cs) <- typeOf' mcxt cxt x
+      let Inductive {T.name = inductiveName, parameters, variants} = inductive
+      let (Global name : spine) = spinify type'
+      guard (name == inductiveName)
+      (returnTypes, cs') <-
+        unzip
+          <$> forM
+            cases
+            ( \(T.Constructor qname, body) -> do
+                let Just (_, arguments, _) = find (\(qname', _, _) -> qname == qname') variants
+                let params' = zip (reverse (take (length parameters) spine)) [0 ..]
+                vs <-
+                  forM
+                    (zip [0 ..] arguments)
+                    ( \(i, T.Argument _ type' _) ->
+                        (,foldr (uncurry subst) type' (second (+ i) <$> params'))
+                          <$> lift gen
+                    )
+                let body' =
+                      foldr
+                        (\(i, v) body'' -> subst (Free v) i body'')
+                        body
+                        (zip [0 ..] (reverse (fst <$> vs)))
+                typeOf' mcxt (cxt <> M.fromList vs) body'
+            )
+      let y : ys = returnTypes
+          everyBranchReturnsSame = fromList ((y,) <$> ys)
+      pure (head returnTypes, foldl (<>) mempty cs' <> everyBranchReturnsSame)
+      where
+        spinify :: Term -> [Term]
+        spinify (Ap x y) = spinify x ++ [y]
+        spinify x = [x]
+    Case x _ cases -> undefined
   where
     typeOf' = typeOf gcxt
 

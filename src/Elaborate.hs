@@ -22,7 +22,6 @@ import Data.Maybe (listToMaybe)
 import Data.Traversable (forM)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
-import Debug.Trace
 import Syntax.AST
 import qualified Syntax.AST as AST
 import Syntax.Desugar
