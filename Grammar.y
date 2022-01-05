@@ -135,7 +135,7 @@ Pattern__ :: { P.Pattern }
           | lsym { P.Variable $1 }
           | '(' TuplePattern ')' { P.Tuple $2 }
           | '[' ']' { P.List [] }
-          | '[' Patterns ']' { P.List (toList $2) }
+          | '[' Patterns ']' { P.List $2 }
           | IntegerLiteral { P.Literal $1 }
           | StringLiteral { P.Literal $1 }
           | '_' { Wildcard }
@@ -149,12 +149,12 @@ Pattern :: { P.Pattern }
         : Pattern__ { $1 }
         | Constructor PatternArguments { P.Data $1 (toList $2) }
 
-Patterns :: { NonEmpty P.Pattern }
-          : Pattern { $1 :| [] }
-          | Pattern ',' Patterns { $1 :| toList $3 }
+Patterns :: { [P.Pattern] }
+          : Pattern { [$1] }
+          | Pattern ',' Patterns { $1 : $3 }
           
 Case :: { Case }
-          : Pattern '->' Expression { ([$1], $3) }
+          : Patterns '->' Expression { ($1, $3) }
 
 Cases :: { [Case] }
           : {- empty -} { [] }
@@ -164,7 +164,7 @@ Cases :: { [Case] }
 Expression :: { Expression }
           : let lsym '=' Expression ',' Expression { Let $2 $4 $6 }
           | forall LocalName_s ':' Expression ',' Expression { ForAll $2 $4 $6 }
-          | case Expression '{' Cases '}'       { Case $2 $4 } 
+          | case CommaSeperated '{' Cases '}'       { Case $2 $4 } 
           | '\\' LambdaArguments '->' Atom       { Lambda $2 $4 }
           | '\\' LambdaArguments '{' Cases '}'       { LambdaCase (toList $2) $4 } 
           | '\\' '{' Cases '}'       { LambdaCase [] $3 } 

@@ -30,6 +30,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Monoid hiding (Ap)
 import qualified Data.Set as S
+import Debug.Trace (traceShowM)
 
 --------------------------------------------------
 ------------------ the language ------------------
@@ -57,8 +58,6 @@ subst new i t = case t of
   Ap l r -> subst new i l `Ap` subst new i r
   Lam tp body -> Lam (subst new i tp) (subst (raise 1 new) (i + 1) body)
   Pi tp body -> Pi (subst new i tp) (subst (raise 1 new) (i + 1) body)
-  -- Case x (Just inductive) branches ->
-  --   Case (subst new i x) (Just inductive) branches
   Case x (Just inductive) branches ->
     Case (subst new i x) (Just inductive) $
       ( \case
@@ -189,7 +188,12 @@ simplify (t1, t2)
           (tp1, tp2)
         ]
   | otherwise =
-    if isStuck t1 || isStuck t2 then return $ S.singleton (t1, t2) else mzero
+    if isStuck t1 || isStuck t2
+      then return $ S.singleton (t1, t2)
+      else do
+        traceShowM
+          "hi"
+        mzero
 
 type Subst = M.Map Id Term
 
@@ -239,7 +243,9 @@ unify ctx@Context {metas = s} cs = do
   where
     applySubst s = S.map (\(t1, t2) -> (manySubst s t1, manySubst s t2))
     flexflex (t1, t2) = isStuck t1 && isStuck t2
-    trySubsts [] cs = mzero
+    trySubsts [] cs = do
+      traceShowM ("hhh", cs)
+      mzero
     trySubsts (mss : psubsts) cs = do
       ss <- mss
       let these = foldr interleave mzero [unify ctx {metas = newS <+> s} cs | newS <- ss]

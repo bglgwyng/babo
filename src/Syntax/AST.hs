@@ -40,7 +40,7 @@ data Expression
   | ForAll (NonEmpty LocalName) Expression Expression
   | Arrow Expression Expression
   | Let LocalName Expression Expression
-  | Case Expression [Case]
+  | Case [Expression] [Case]
   | Lambda (NonEmpty Argument) Expression
   | LambdaCase [Argument] [Case]
   | Infix Expression QName Expression

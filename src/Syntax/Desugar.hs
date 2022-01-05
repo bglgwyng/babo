@@ -32,6 +32,7 @@ import Data.List.NonEmpty.Extra (groupWith)
 import Data.Map as M (Map, delete, fromList, lookup, member, singleton)
 import Data.Maybe (catMaybes, fromJust, fromMaybe)
 import Data.Tuple.Extra (dupe, firstM)
+import Debug.Trace (traceShow, traceShowM)
 import GHC.Base (undefined)
 import GHC.Err (undefined)
 import Syntax.AST (TopLevelStatement (..))
@@ -81,13 +82,22 @@ desugarExpression globalCtx = desugar'
         T.Pi <$> desugar'' x <*> desugar' (extend ctx) y
       AST.Let name value body ->
         T.Ap <$> (T.Lam <$> (T.Meta <$> gen) <*> desugar' (name : ctx) body) <*> desugar'' value
-      AST.Case x cases ->
-        subst <$> desugar'' x <*> pure 0 <*> go [0] ((ctx,) <$> cases)
+      AST.Case xss@xs cases -> do
+        xs' <- forM xs desugar''
+        traceShowM (xs, length xs', (length . fst <$> cases))
+        traceShowM (if all (== length xs') (length . fst <$> cases) then () else undefined)
+        let bounds = reverse [0 .. length xs' - 1]
+        y <- go bounds ((ctx,) <$> cases)
+        argTypes <- forM xs' (const (T.Meta <$> gen))
+        pure (foldr (flip T.Ap) (foldr (T.Lam) y argTypes) xs')
+        traceShowM ("$$", xs, xs', y)
+        traceShowM ("$$2", xs, xs', subst (T.Local 0) 0 y)
+        pure (foldr (uncurry (flip subst)) y (zip bounds xs'))
+        pure (foldr (flip T.Ap) (foldr (T.Lam) y argTypes) xs')
         where
-          -- T.Ap <$> (T.Lam <$> (T.Meta <$> gen) <*> go [0] ((ctx,) <$> cases)) <*> desugar'' x
           go :: [Int] -> [(LocalContext, AST.Case)] -> Gen Id T.Term
           go xs [(ctx, ([], body))] = desugar' ctx body
-          go (x : xs) [(ctx, (Variable name : ys, body))] = go xs [(setAt x name ctx, (ys, body))]
+          -- go (x : xs) [(ctx, (Variable name : ys, body))] = go xs [(setAt x name ctx, (ys, body))]
           go (x : xs) branches =
             -- FIXME: remove fromJust
             T.Case (T.Local x) inductive

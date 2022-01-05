@@ -22,6 +22,7 @@ import Data.Maybe (listToMaybe)
 import Data.Traversable (forM)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
+import Debug.Trace (traceShowM)
 import Syntax.AST
 import qualified Syntax.AST as AST
 import Syntax.Desugar
@@ -76,9 +77,10 @@ elaborate' ctx AST.Definition {name, args, maybeType, value} =
     let argTypes = (\(T.Argument _ x _) -> x) <$> args'
     type' <- foldr T.Pi `flip` argTypes <$> lift (maybe (T.Meta <$> gen) (desugarExpression ctx ctx') maybeType)
     value' <- foldr T.Lam `flip` argTypes <$> lift (desugarExpression ctx ctx' value)
-    pure $
-      infer' ctx mempty value' type'
-        <&> (swap >>> (M.singleton (QName [] name) . uncurry Context.Definition))
+    traceShowM ("===============", name, value', type')
+    let f = infer' ctx mempty value' type' <&> (swap >>> (M.singleton (QName [] name) . uncurry Context.Definition))
+    traceShowM ("|||||||||||||||", f)
+    pure f
 elaborate' ctx AST.Import {} = undefined
 
 elaborate :: AST.Source -> Maybe GlobalContext
@@ -87,6 +89,7 @@ elaborate (AST.Source xs) =
     ( \xs y ->
         do
           Just ys <- listToMaybe . runUnifyM $ elaborate' xs y
+          traceShowM (ys, "???")
           pure $ xs <> ys
     )
     mempty
