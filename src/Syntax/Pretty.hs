@@ -1,6 +1,3 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE NamedFieldPuns #-}
-
 module Syntax.Pretty where
 
 import Common (QName)
@@ -23,7 +20,6 @@ import Prettyprinter
     (<+>),
   )
 import Prettyprinter.Render.String (renderString)
-import Syntax.AST
 import Syntax.AST as AST
 import Syntax.Grammar hiding (indent)
 import Syntax.Pattern hiding (List, Literal, Tuple, Variable)

@@ -30,6 +30,15 @@ dependencies:
 - logict >= 0.7.1.0
 - mtl >= 2.2.2
 
+default-extensions: 
+- LambdaCase
+- TupleSections
+- DuplicateRecordFields
+- NamedFieldPuns
+- DataKinds
+- FlexibleInstances
+- MultiParamTypeClasses
+
 library:
   source-dirs: src
 

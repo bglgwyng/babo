@@ -42,6 +42,14 @@ library
       Paths_babo
   hs-source-dirs:
       src
+  default-extensions:
+      LambdaCase
+      TupleSections
+      DuplicateRecordFields
+      NamedFieldPuns
+      DataKinds
+      FlexibleInstances
+      MultiParamTypeClasses
   build-depends:
       array >=0.5.4
     , base >=4.7 && <5
@@ -60,6 +68,14 @@ executable babo-exe
       Paths_babo
   hs-source-dirs:
       app
+  default-extensions:
+      LambdaCase
+      TupleSections
+      DuplicateRecordFields
+      NamedFieldPuns
+      DataKinds
+      FlexibleInstances
+      MultiParamTypeClasses
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       array >=0.5.4
@@ -81,6 +97,14 @@ test-suite babo-test
       Paths_babo
   hs-source-dirs:
       test
+  default-extensions:
+      LambdaCase
+      TupleSections
+      DuplicateRecordFields
+      NamedFieldPuns
+      DataKinds
+      FlexibleInstances
+      MultiParamTypeClasses
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       array >=0.5.4
