@@ -81,10 +81,15 @@ desugarExpression globalCtx = desugar'
         T.Pi <$> desugar'' x <*> desugar' (extend ctx) y
       AST.Let name value body ->
         T.Ap <$> (T.Lam <$> (T.Meta (length ctx + 1) <$> gen) <*> desugar' (name : ctx) body) <*> desugar'' value
-      AST.Case x cases ->
-        subst <$> desugar'' x <*> pure 0 <*> go [0] ((ctx,) <$> cases)
+      AST.Case xs cases -> do
+        xs' <- forM xs desugar''
+        let bounds = reverse [0 .. length xs' - 1]
+        let scopeLevel = length ctx
+        y <- go bounds ((ctx,) <$> cases)
+        argTypes <- forM (zip [scopeLevel ..] xs') (T.Meta . fst >>> (<$> gen))
+        -- pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs')
+        pure (foldr (uncurry (flip subst)) y (zip bounds xs'))
         where
-          -- T.Ap <$> (T.Lam <$> (T.Meta <$> gen) <*> go [0] ((ctx,) <$> cases)) <*> desugar'' x
           go :: [Int] -> [(LocalContext, AST.Case)] -> Gen Id T.Term
           go xs [(ctx, ([], body))] = desugar' ctx body
           go (x : xs) [(ctx, (Variable name : ys, body))] = go xs [(setAt x name ctx, (ys, body))]
@@ -114,7 +119,7 @@ desugarExpression globalCtx = desugar'
                               introduce (locals, (Variable name : patterns, body)) =
                                 (setAt x name locals, (patterns, body))
                               introduce _ = undefined
-                          _ -> undefined
+                          _ -> error "?"
                 )
             where
               inductive =

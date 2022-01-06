@@ -58,8 +58,6 @@ subst new i t = case t of
   Ap l r -> subst new i l `Ap` subst new i r
   Lam tp body -> Lam (subst new i tp) (subst (raise 1 new) (i + 1) body)
   Pi tp body -> Pi (subst new i tp) (subst (raise 1 new) (i + 1) body)
-  -- Case x (Just inductive) branches ->
-  --   Case (subst new i x) (Just inductive) branches
   Case x (Just inductive) branches ->
     Case (subst new i x) (Just inductive) $
       ( \case
