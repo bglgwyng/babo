@@ -10,7 +10,7 @@ import Control.Arrow ((&&&), (>>>))
 import Control.Monad (foldM)
 import Control.Monad.Gen (Gen, MonadGen (gen), runGen)
 import Control.Monad.Trans (lift)
-import Core.Client (infer')
+import Core.Client (infer)
 import qualified Core.Term as T
 import Core.Unification (UnifyM, runUnifyM)
 import Data.Bifunctor
@@ -27,11 +27,11 @@ import qualified Syntax.AST as AST
 import Syntax.Desugar
 
 elaborate' :: GlobalContext -> AST.TopLevelStatement -> UnifyM (Maybe GlobalContext)
-elaborate' ctx AST.DataDeclaration {name, args = params, maybeType, variants} =
+elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
   do
-    (params', ctx') <- lift $ desugarArguments ctx [] params
+    (params', cxt') <- lift $ desugarArguments cxt [] params
     let paramsArity = length params'
-    bodyType <- lift $ maybe (pure T.Type) (desugarExpression ctx []) maybeType
+    bodyType <- lift $ maybe (pure T.Type) (desugarExpression cxt []) maybeType
     let type' = foldr T.Pi bodyType ((\(T.Argument _ x _) -> x) <$> params')
         typeName = QName [] name
         typeDefinition = singleton typeName TypeConstructor {type'}
@@ -39,7 +39,7 @@ elaborate' ctx AST.DataDeclaration {name, args = params, maybeType, variants} =
       forM
         variants
         ( \Variant {name = name', args} -> do
-            (argTypes, ctx') <- lift $ desugarArguments (ctx <> typeDefinition) ((\(T.Argument x _ _) -> x) <$> params') args
+            (argTypes, cxt') <- lift $ desugarArguments (cxt <> typeDefinition) ((\(T.Argument x _ _) -> x) <$> params') args
             pure
               ( QName [] name',
                 argTypes,
@@ -53,33 +53,33 @@ elaborate' ctx AST.DataDeclaration {name, args = params, maybeType, variants} =
           T.Inductive
             { name = typeName,
               T.variants = variants',
-              T.parameters = params',
+              T.params = params',
               T.indices = []
             }
     pure $
       Just $
         fromList
           ((typeName, TypeConstructor {type', inductive}) : ((\(x, _, y) -> (x, DataConstructor y inductive)) <$> variants'))
-elaborate' ctx AST.Declaration {name, args, type'} =
+elaborate' cxt AST.Declaration {name, args, type'} =
   do
-    (args', ctx') <- lift $ desugarArguments ctx [] args
+    (args', cxt') <- lift $ desugarArguments cxt [] args
     -- FIXME:
     let argTypes = (\(T.Argument _ x _) -> x) <$> args'
-    type' <- lift $ desugarExpression ctx ctx' type'
+    type' <- lift $ desugarExpression cxt cxt' type'
     pure $
-      infer' ctx mempty (foldr T.Pi type' argTypes) T.Type
+      infer cxt mempty (foldr T.Pi type' argTypes) T.Type
         <&> (fst >>> (M.singleton (QName [] name) . Context.Declaration))
-elaborate' ctx AST.Definition {name, args, maybeType, value} =
+elaborate' cxt AST.Definition {name, args, maybeType, value} =
   do
-    (args', ctx') <- lift $ desugarArguments ctx [] args
+    (args', cxt') <- lift $ desugarArguments cxt [] args
     -- FIXME:
     let argTypes = (\(T.Argument _ x _) -> x) <$> args'
-    type' <- foldr T.Pi `flip` argTypes <$> lift (maybe (T.Meta (length argTypes) <$> gen) (desugarExpression ctx ctx') maybeType)
-    value' <- foldr T.Lam `flip` argTypes <$> lift (desugarExpression ctx ctx' value)
+    type' <- foldr T.Pi `flip` argTypes <$> lift (maybe (T.Meta (length argTypes) <$> gen) (desugarExpression cxt cxt') maybeType)
+    value' <- foldr T.Lam `flip` argTypes <$> lift (desugarExpression cxt cxt' value)
     pure $
-      infer' ctx mempty value' type'
+      infer cxt mempty value' type'
         <&> (swap >>> (M.singleton (QName [] name) . uncurry Context.Definition))
-elaborate' ctx AST.Import {} = undefined
+elaborate' cxt AST.Import {} = undefined
 
 elaborate :: AST.Source -> Maybe GlobalContext
 elaborate (AST.Source xs) =

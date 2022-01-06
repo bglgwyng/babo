@@ -36,7 +36,7 @@ data Argument = Argument LocalName Term ArgumentType deriving (Show, Eq, Ord)
 data Inductive = Inductive
   { name :: QName,
     variants :: [(QName, [Argument], Term)],
-    parameters :: [Argument],
+    params :: [Argument],
     indices :: [Argument]
   }
   deriving (Eq, Ord)

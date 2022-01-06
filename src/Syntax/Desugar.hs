@@ -60,42 +60,40 @@ data Match = Constructor QName | Literal Literal | Self
   deriving (Eq, Ord, Show)
 
 desugarExpression :: GlobalContext -> LocalContext -> AST.Expression -> Gen Id T.Term
-desugarExpression globalCtx = desugar'
+desugarExpression gcxt = desugar'
   where
     desugar' :: LocalContext -> AST.Expression -> Gen Id T.Term
-    desugar' ctx = \case
+    desugar' cxt = \case
       AST.Application head spine -> do
-        head' <- desugar' ctx head
+        head' <- desugar' cxt head
         spine <- forM spine (desugar'' . snd)
         pure $ foldl T.Ap head' spine
       AST.Identifier x ->
         pure $ fromMaybe (error (show x)) (lookup x)
-      AST.ForAll xs type' body ->
-        forall ctx (toList xs)
+      AST.ForAll xs from to ->
+        forall cxt (toList xs)
         where
           forall :: LocalContext -> [LocalName] -> Gen Id T.Term
-          forall _ [] = desugar' (toList xs <> ctx) body
-          forall ctx (x : xs) =
-            T.Pi <$> desugar'' type' <*> forall (extend ctx) xs
-      AST.Arrow x y ->
-        T.Pi <$> desugar'' x <*> desugar' (extend ctx) y
+          forall _ [] = desugar' (toList xs <> cxt) to
+          forall cxt (x : xs) =
+            T.Pi <$> desugar'' from <*> forall (extend cxt) xs
+      AST.Arrow from to ->
+        T.Pi <$> desugar'' from <*> desugar' (extend cxt) to
       AST.Let name value body ->
-        T.Ap <$> (T.Lam <$> (T.Meta (length ctx + 1) <$> gen) <*> desugar' (name : ctx) body) <*> desugar'' value
+        T.Ap <$> (T.Lam <$> (T.Meta (length cxt + 1) <$> gen) <*> desugar' (name : cxt) body) <*> desugar'' value
       AST.Case xs cases -> do
         xs' <- forM xs desugar''
         let bounds = reverse [0 .. length xs' - 1]
-        let scopeLevel = length ctx
-        y <- go bounds ((ctx,) <$> cases)
+        let scopeLevel = length cxt
+        y <- go bounds ((cxt,) <$> cases)
         argTypes <- forM (zip [scopeLevel ..] xs') (T.Meta . fst >>> (<$> gen))
         pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs')
         where
           -- pure (foldr (uncurry (flip subst)) y (zip bounds xs'))
-
           go :: [Int] -> [(LocalContext, AST.Case)] -> Gen Id T.Term
-          go xs [(ctx, ([], body))] = desugar' ctx body
-          go (x : xs) [(ctx, (Variable name : ys, body))] = go xs [(setAt x name ctx, (ys, body))]
+          go xs [(cxt, ([], body))] = desugar' cxt body
+          go (x : xs) [(cxt, (Variable name : ys, body))] = go xs [(setAt x name cxt, (ys, body))]
           go (x : xs) branches =
-            -- FIXME: remove fromJust
             T.Case (T.Local x) inductive
               <$> forM
                 (groupBy (on equivalent (head . fst . snd)) branches)
@@ -129,7 +127,7 @@ desugarExpression globalCtx = desugar'
                     inductives =
                       traverse
                         (\case Just (DataConstructor _ x) -> Just x; _ -> Nothing)
-                        (flip M.lookup globalCtx <$> constructorPatterns)
+                        (flip M.lookup gcxt <$> constructorPatterns)
                  in do
                       x : _ <- inductives
                       pure x
@@ -142,8 +140,8 @@ desugarExpression globalCtx = desugar'
           equivalent Wildcard (Variable _) = True
           equivalent Wildcard Wildcard = True
           equivalent _ _ = False
-      AST.Lambda args body -> lambda ctx (toList args) body
-      AST.LambdaCase args cases -> lambda ctx args undefined
+      AST.Lambda args body -> lambda cxt (toList args) body
+      AST.LambdaCase args cases -> lambda cxt args undefined
       AST.Infix x op y ->
         T.Ap . T.Ap (fromJust $ lookup op) <$> desugar'' x <*> desugar'' y
       AST.Tuple xs -> do
@@ -156,29 +154,29 @@ desugarExpression globalCtx = desugar'
       AST.Literal x -> undefined
       AST.Parenthesized x -> desugar'' x
       where
-        desugar'' = desugar' ctx
+        desugar'' = desugar' cxt
         lookup :: QName -> Maybe T.Term
         lookup qname@QName {namespace, Common.name} =
           ( if null namespace
-              then T.Local <$> elemIndex name ctx
+              then T.Local <$> elemIndex name cxt
               else Nothing
           )
-            <|> if qname `member` globalCtx then Just (T.Global qname) else Nothing
+            <|> if qname `member` gcxt then Just (T.Global qname) else Nothing
     lambda :: LocalContext -> [AST.Argument] -> AST.Expression -> (Gen Id) T.Term
-    lambda ctx xs body = do
-      (args, context) <- desugarArguments globalCtx ctx xs
+    lambda cxt xs body = do
+      (args, context) <- desugarArguments gcxt cxt xs
       let argTypes = (\(T.Argument _ x _) -> x) <$> args
-      body' <- desugarExpression globalCtx context body
+      body' <- desugarExpression gcxt context body
       pure $ foldr T.Lam body' argTypes
 
 desugarArguments :: GlobalContext -> LocalContext -> [AST.Argument] -> (Gen Id) ([T.Argument], LocalContext)
-desugarArguments globalCtx = go
+desugarArguments gcxt = go
   where
     go :: LocalContext -> [AST.Argument] -> (Gen Id) ([T.Argument], LocalContext)
-    go ctx [] = pure ([], [])
-    go ctx ((names, type', _) : xs) = do
-      type'' <- maybe (T.Meta (length ctx) <$> gen) (desugarExpression globalCtx ctx) type'
-      (args, context) <- go (toList names <> ctx) xs
+    go cxt [] = pure ([], [])
+    go cxt ((names, type', _) : xs) = do
+      type'' <- maybe (T.Meta (length cxt) <$> gen) (desugarExpression gcxt cxt) type'
+      (args, context) <- go (toList names <> cxt) xs
       pure
         ( toList ((\x -> T.Argument x type'' T.Explicit) <$> names) <> args,
           context <> reverse (toList names)

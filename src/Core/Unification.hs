@@ -17,6 +17,9 @@ module Core.Unification
     runUnifyM,
     driver,
     Context (..),
+    peelApTelescope,
+    applyApTelescope,
+    reduce,
   )
 where
 
@@ -44,8 +47,8 @@ raise = go 0
     go lower i t = case t of
       Local j -> if i > lower then Local (i + j) else Local j
       Ap l r -> go lower i l `Ap` go lower i r
-      Lam tp body -> Lam (go lower i tp) (go (lower + 1) i body)
-      Pi tp body -> Pi (go lower i tp) (go (lower + 1) i body)
+      Lam arg body -> Lam (go lower i arg) (go (lower + 1) i body)
+      Pi arg body -> Pi (go lower i arg) (go (lower + 1) i body)
       _ -> t
 
 -- | Substitute a term for the de Bruijn variable @i@.
@@ -56,16 +59,15 @@ subst new i t = case t of
     EQ -> new
     GT -> Local (j - 1)
   Ap l r -> subst new i l `Ap` subst new i r
-  Lam tp body -> Lam (subst new i tp) (subst (raise 1 new) (i + 1) body)
-  Pi tp body -> Pi (subst new i tp) (subst (raise 1 new) (i + 1) body)
+  Lam arg body -> Lam (subst new i arg) (subst (raise 1 new) (i + 1) body)
+  Pi arg body -> Pi (subst new i arg) (subst (raise 1 new) (i + 1) body)
   Case x (Just inductive) branches ->
     Case (subst new i x) (Just inductive) $
       ( \case
           (Constructor qname, body) ->
             let Inductive {variants} = inductive
                 Just (_, argument, _) = find (\(qname', _, _) -> qname == qname') variants
-             in -- Just
-                ( Constructor qname,
+             in ( Constructor qname,
                   subst
                     (raise (length argument) new)
                     (i + length argument)
@@ -82,8 +84,8 @@ substMV :: Term -> Id -> Term -> Term
 substMV new i t = case t of
   Meta _ j | i == j -> new
   Ap l r -> substMV new i l `Ap` substMV new i r
-  Lam tp body -> Lam (substMV new i tp) (substMV (raise 1 new) i body)
-  Pi tp body -> Pi (substMV new i tp) (substMV (raise 1 new) i body)
+  Lam arg body -> Lam (substMV new i arg) (substMV (raise 1 new) i body)
+  Pi arg body -> Pi (substMV new i arg) (substMV (raise 1 new) i body)
   _ -> t
 
 -- | Substitute a term for all free variable with a given identifier.
@@ -91,8 +93,8 @@ substFV :: Term -> Id -> Term -> Term
 substFV new i t = case t of
   Free _ j | i == j -> new
   Ap l r -> substFV new i l `Ap` substFV new i r
-  Lam tp body -> Lam (substFV new i tp) (substFV (raise 1 new) i body)
-  Pi tp body -> Pi (substFV new i tp) (substFV (raise 1 new) i body)
+  Lam arg body -> Lam (substFV new i arg) (substFV (raise 1 new) i body)
+  Pi arg body -> Pi (substFV new i arg) (substFV (raise 1 new) i body)
   _ -> t
 
 -- | Gather all the metavariables in a term into a set.
@@ -100,8 +102,8 @@ metavars :: Term -> S.Set Id
 metavars t = case t of
   Meta _ j -> S.singleton j
   Ap l r -> metavars l <> metavars r
-  Lam tp body -> metavars tp <> metavars body
-  Pi tp body -> metavars tp <> metavars body
+  Lam arg body -> metavars arg <> metavars body
+  Pi arg body -> metavars arg <> metavars body
   _ -> S.empty
 
 -- | Returns @True@ if a term has no free variables and is therefore a
@@ -111,8 +113,8 @@ isClosed level t = case t of
   Free l i
     | l >= level -> False
   Ap l r -> isClosed' l && isClosed' r
-  Lam tp body -> isClosed' tp && isClosed (level + 1) body
-  Pi tp body -> isClosed' tp && isClosed (level + 1) body
+  Lam arg body -> isClosed' arg && isClosed (level + 1) body
+  Pi arg body -> isClosed' arg && isClosed (level + 1) body
   Case x _ alts -> isClosed' x && all (isClosed' . snd) alts
   _ -> True
   where
@@ -124,10 +126,10 @@ isClosed level t = case t of
 reduce :: Term -> Term
 reduce = \case
   Ap l r -> case reduce l of
-    Lam tp body -> reduce (subst r 0 body)
+    Lam arg body -> reduce (subst r 0 body)
     l' -> Ap l' (reduce r)
-  Lam tp body -> Lam (reduce tp) (reduce body)
-  Pi tp body -> Pi (reduce tp) (reduce body)
+  Lam arg body -> Lam (reduce arg) (reduce body)
+  Pi arg body -> Pi (reduce arg) (reduce body)
   x -> x
 
 -- | Check to see if a term is blocked on applying a metavariable.
@@ -171,21 +173,21 @@ simplify (t1, t2, level)
     (Global j, cxt') <- peelApTelescope t2 = do
     guard (i == j && length cxt == length cxt')
     fold <$> mapM simplify (zipWith (,,level) cxt cxt')
-  | Lam tp1 body1 <- t1,
-    Lam tp2 body2 <- t2 = do
+  | Lam arg1 body1 <- t1,
+    Lam arg2 body2 <- t2 = do
     v <- Free level <$> lift gen
     pure $
       S.fromList
         [ (subst v 0 body1, subst v 0 body2, level + 1),
-          (tp1, tp2, level)
+          (arg1, arg2, level)
         ]
-  | Pi tp1 body1 <- t1,
-    Pi tp2 body2 <- t2 = do
+  | Pi arg1 body1 <- t1,
+    Pi arg2 body2 <- t2 = do
     v <- Free level <$> lift gen
     pure $
       S.fromList
         [ (subst v 0 body1, subst v 0 body2, level + 1),
-          (tp1, tp2, level)
+          (arg1, arg2, level)
         ]
   | otherwise =
     if isStuck t1 || isStuck t2 then pure $ S.singleton (t1, t2, level) else mzero
@@ -226,7 +228,7 @@ s1 <+> s2 = M.union (manySubst s1 <$> s2) s1
 data Context = Context {metas :: Subst, globals :: M.Map String Term}
 
 unify :: Context -> S.Set Constraint -> UnifyM (Subst, S.Set Constraint)
-unify ctx@Context {metas = s} cs = do
+unify cxt@Context {metas = s} cs = do
   let cs' = applySubst s cs
   cs'' <- repeatedlySimplify cs'
   let (flexflexes, flexrigids) = S.partition flexflex cs''
@@ -241,7 +243,7 @@ unify ctx@Context {metas = s} cs = do
     trySubsts [] cs = mzero
     trySubsts (mss : psubsts) cs = do
       ss <- mss
-      let these = foldr interleave mzero [unify ctx {metas = newS <+> s} cs | newS <- ss]
+      let these = foldr interleave mzero [unify cxt {metas = newS <+> s} cs | newS <- ss]
       let those = trySubsts psubsts cs
       these `interleave` those
 
