@@ -160,7 +160,7 @@ type Constraint = (Term, Term, Level)
 -- constraints should be a solution for the original constraint.
 simplify :: Constraint -> UnifyM (S.Set Constraint)
 simplify (t1, t2, level)
-  | t1 == t2 && S.null (metavars t1) = return S.empty
+  | t1 == t2 && S.null (metavars t1) = pure S.empty
   | reduce t1 /= t1 = simplify (reduce t1, t2, level)
   | reduce t2 /= t2 = simplify (t1, reduce t2, level)
   | (Free _ i, cxt) <- peelApTelescope t1,
@@ -174,7 +174,7 @@ simplify (t1, t2, level)
   | Lam tp1 body1 <- t1,
     Lam tp2 body2 <- t2 = do
     v <- Free level <$> lift gen
-    return $
+    pure $
       S.fromList
         [ (subst v 0 body1, subst v 0 body2, level + 1),
           (tp1, tp2, level)
@@ -182,13 +182,13 @@ simplify (t1, t2, level)
   | Pi tp1 body1 <- t1,
     Pi tp2 body2 <- t2 = do
     v <- Free level <$> lift gen
-    return $
+    pure $
       S.fromList
         [ (subst v 0 body1, subst v 0 body2, level + 1),
           (tp1, tp2, level)
         ]
   | otherwise =
-    if isStuck t1 || isStuck t2 then return $ S.singleton (t1, t2, level) else mzero
+    if isStuck t1 || isStuck t2 then pure $ S.singleton (t1, t2, level) else mzero
 
 type Subst = M.Map Id Term
 
@@ -211,10 +211,10 @@ tryFlexRigid (t1, t2, _)
 repeatedlySimplify :: S.Set Constraint -> UnifyM (S.Set Constraint)
 repeatedlySimplify cs = do
   cs' <- fold <$> traverse simplify (S.toList cs)
-  if cs' == cs then return cs else repeatedlySimplify cs'
+  if cs' == cs then pure cs else repeatedlySimplify cs'
 
 manySubst :: Subst -> Term -> Term
-manySubst s t = M.foldrWithKey (\mv sol t -> substMV sol mv t) t s
+manySubst s t = M.foldrWithKey (flip substMV) t s
 
 (<+>) :: Subst -> Subst -> Subst
 s1 <+> s2 | not (M.null (M.intersection s1 s2)) = error "Impossible"
@@ -231,7 +231,7 @@ unify ctx@Context {metas = s} cs = do
   cs'' <- repeatedlySimplify cs'
   let (flexflexes, flexrigids) = S.partition flexflex cs''
   if S.null flexrigids
-    then return (s, flexflexes)
+    then pure (s, flexflexes)
     else do
       let psubsts = tryFlexRigid (S.findMax flexrigids)
       trySubsts psubsts (flexrigids <> flexflexes)

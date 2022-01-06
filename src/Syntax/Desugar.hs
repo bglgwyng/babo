@@ -87,9 +87,10 @@ desugarExpression globalCtx = desugar'
         let scopeLevel = length ctx
         y <- go bounds ((ctx,) <$> cases)
         argTypes <- forM (zip [scopeLevel ..] xs') (T.Meta . fst >>> (<$> gen))
-        -- pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs')
-        pure (foldr (uncurry (flip subst)) y (zip bounds xs'))
+        pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs')
         where
+          -- pure (foldr (uncurry (flip subst)) y (zip bounds xs'))
+
           go :: [Int] -> [(LocalContext, AST.Case)] -> Gen Id T.Term
           go xs [(ctx, ([], body))] = desugar' ctx body
           go (x : xs) [(ctx, (Variable name : ys, body))] = go xs [(setAt x name ctx, (ys, body))]

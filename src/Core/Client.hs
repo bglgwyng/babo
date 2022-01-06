@@ -25,6 +25,7 @@ import Data.Maybe
 import Data.Monoid hiding (Ap)
 import Data.Set (fromList)
 import qualified Data.Set as S
+import Debug.Trace (traceShowM)
 
 typeOf :: Level -> GlobalContext -> M.Map Id Term -> M.Map Id Term -> Term -> UnifyM (Term, S.Set Constraint)
 typeOf level gcxt mcxt cxt t =
@@ -39,21 +40,15 @@ typeOf level gcxt mcxt cxt t =
         $ M.lookup i gcxt
     Type -> pure (Type, S.empty)
     Ap l r -> do
-      ( do
-          (tpl, cl) <- typeOf' mcxt cxt l
-          let (from, to) = case tpl of
-                Pi from to -> (from, to)
-                _ -> error "typeOf: Ap: not a Pi"
+      (tpl, cl) <- typeOf' mcxt cxt l
+      case tpl of
+        Pi from to ->
           optional (typeOf' mcxt cxt r)
-            <&> ((subst r 0 to,) . (cl <>) . foldMap (\(tpr, cr) -> cr <> S.singleton (from, tpr, level)))
-        )
-        <|>
-        -- NOTE: when `typeOf' mcxt cxt l` failed
-        do
-          let Lam argType body = l
-          (rType, cs1) <- typeOf' mcxt cxt r
-          (type', cs2) <- typeOf' mcxt cxt (subst r 0 body)
-          pure (type', cs1 <> cs2 <> S.singleton (rType, argType, level))
+            <&> ( (subst r 0 to,)
+                    . (cl <>)
+                    . foldMap (uncurry (<>) . first (S.singleton . (from,,level)))
+                )
+        _ -> error "typeOf: Ap: not a Pi"
     Lam arg b -> do
       v <- lift gen
       (to, cs) <-
@@ -63,7 +58,7 @@ typeOf level gcxt mcxt cxt t =
           mcxt
           (M.insert v arg cxt)
           (subst (Free level v) 0 b)
-      return
+      pure
         (Pi arg (substFV (Local 0) v (raise 1 to)), cs)
     Pi from to -> do
       v <- lift gen
@@ -71,7 +66,7 @@ typeOf level gcxt mcxt cxt t =
         (uncurry (<>) . first (S.singleton . (Type,,level)) <$> typeOf' mcxt cxt from)
           <|> pure mempty
       (toTp, toCs) <- typeOf (level + 1) gcxt mcxt (M.insert v from cxt) (subst (Free level v) 0 to)
-      return
+      pure
         ( Type,
           cs
             <> toCs
@@ -79,9 +74,16 @@ typeOf level gcxt mcxt cxt t =
         )
     Case x (Just inductive) cases -> do
       (type', cs) <- typeOf' mcxt cxt x
-      let Inductive {T.name = inductiveName, parameters, variants} = inductive
-      let (Global name : spine) = spinify type'
-      guard (name == inductiveName)
+      let Inductive {T.name = inductiveName, parameters, indices, variants} = inductive
+      (spine, cs') <- case spinify type' of
+        (Global name : spine)
+          | name == inductiveName -> pure (spine, mempty)
+          | otherwise ->
+            error (show inductiveName <> " != " <> show name)
+        x -> do
+          paramMetas <- forM parameters (const $ T.Meta level <$> lift gen)
+          indexMetas <- forM indices (const $ T.Meta level <$> lift gen)
+          pure (paramMetas <> indexMetas, S.singleton (x, foldl T.Ap (Global inductiveName) (paramMetas <> indexMetas)))
       (returnTypes, cs') <-
         unzip
           <$> forM
@@ -120,7 +122,7 @@ infer gcxt t = listToMaybe . runUnifyM $ go
     go = do
       (tp, cs) <- typeOf 0 gcxt M.empty M.empty t
       (subst, flexflex) <- unify Context {metas = M.empty} cs
-      return (manySubst subst tp, subst, cs)
+      pure (manySubst subst tp, subst, cs)
 
 infer' :: GlobalContext -> M.Map Id Term -> Term -> Term -> Maybe (Term, Term)
 infer' gctx ctx t1 t2 = listToMaybe . runUnifyM $ go
@@ -128,4 +130,4 @@ infer' gctx ctx t1 t2 = listToMaybe . runUnifyM $ go
     go = do
       (tp, cs) <- typeOf 0 gctx M.empty ctx t1
       (subst, flexflex) <- unify Context {metas = M.empty} (cs <> S.singleton (tp, t2, 0))
-      return (manySubst subst t1, manySubst subst tp)
+      pure (manySubst subst t1, manySubst subst tp)
