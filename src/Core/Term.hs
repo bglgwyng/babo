@@ -31,7 +31,7 @@ data ArgumentType = Explicit | Implicit deriving (Show, Eq, Ord)
 data Argument = Argument LocalName Term ArgumentType deriving (Show, Eq, Ord)
 
 data Inductive = Inductive
-  { name :: QName,
+  { qname :: QName,
     variants :: [(QName, [Argument], Term)],
     params :: [Argument],
     indices :: [Argument]
@@ -39,7 +39,7 @@ data Inductive = Inductive
   deriving (Eq, Ord)
 
 instance Show Inductive where
-  show Inductive {name} = show name
+  show Inductive {qname} = show qname
 
 instance Show Term where
   showsPrec _ (Free _ i) = shows i . showString "$"

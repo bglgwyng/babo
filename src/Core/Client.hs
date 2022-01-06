@@ -70,7 +70,7 @@ typeOf level gcxt mcxt cxt t =
         )
     Case x (Just inductive) cases -> do
       (xType, cs) <- typeOf' mcxt cxt x
-      let Inductive {T.name = inductiveName, params, indices, variants} = inductive
+      let Inductive {qname = inductiveName, params, indices, variants} = inductive
       -- TODO: is reduce necessary?
       (spine, cs'') <- case peelApTelescope (reduce xType) of
         (Global name, spine)

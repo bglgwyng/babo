@@ -47,7 +47,7 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
         )
     let inductive =
           T.Inductive
-            { name = typeName,
+            { qname = typeName,
               T.variants = variants',
               T.params = params',
               T.indices = []
