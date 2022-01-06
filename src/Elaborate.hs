@@ -74,7 +74,7 @@ elaborate' ctx AST.Definition {name, args, maybeType, value} =
     (args', ctx') <- lift $ desugarArguments ctx [] args
     -- FIXME:
     let argTypes = (\(T.Argument _ x _) -> x) <$> args'
-    type' <- foldr T.Pi `flip` argTypes <$> lift (maybe (T.Meta <$> gen) (desugarExpression ctx ctx') maybeType)
+    type' <- foldr T.Pi `flip` argTypes <$> lift (maybe (T.Meta (length argTypes) <$> gen) (desugarExpression ctx ctx') maybeType)
     value' <- foldr T.Lam `flip` argTypes <$> lift (desugarExpression ctx ctx' value)
     pure $
       infer' ctx mempty value' type'

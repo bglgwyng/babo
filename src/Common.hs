@@ -14,4 +14,6 @@ instance Show QName where
 
 type Id = Int
 
+type Level = Int
+
 type Index = Int

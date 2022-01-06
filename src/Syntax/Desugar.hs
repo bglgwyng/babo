@@ -80,7 +80,7 @@ desugarExpression globalCtx = desugar'
       AST.Arrow x y ->
         T.Pi <$> desugar'' x <*> desugar' (extend ctx) y
       AST.Let name value body ->
-        T.Ap <$> (T.Lam <$> (T.Meta <$> gen) <*> desugar' (name : ctx) body) <*> desugar'' value
+        T.Ap <$> (T.Lam <$> (T.Meta (length ctx + 1) <$> gen) <*> desugar' (name : ctx) body) <*> desugar'' value
       AST.Case x cases ->
         subst <$> desugar'' x <*> pure 0 <*> go [0] ((ctx,) <$> cases)
         where
@@ -171,7 +171,7 @@ desugarArguments globalCtx = go
     go :: LocalContext -> [AST.Argument] -> (Gen Id) ([T.Argument], LocalContext)
     go ctx [] = pure ([], [])
     go ctx ((names, type', _) : xs) = do
-      type'' <- maybe (T.Meta <$> gen) (desugarExpression globalCtx ctx) type'
+      type'' <- maybe (T.Meta (length ctx) <$> gen) (desugarExpression globalCtx ctx) type'
       (args, context) <- go (toList names <> ctx) xs
       pure
         ( toList ((\x -> T.Argument x type'' T.Explicit) <$> names) <> args,

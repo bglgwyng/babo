@@ -8,7 +8,7 @@ module Core.Client (infer, infer') where
 import Common
 import Context
 import Control.Applicative
-import Control.Arrow (Arrow (first, second), (>>>))
+import Control.Arrow (Arrow (first, second), (***), (>>>))
 import Control.Monad
 import Control.Monad.Gen
 import Control.Monad.Trans
@@ -19,18 +19,19 @@ import Data.Foldable (find)
 import Data.Function ((&))
 import Data.Functor
 import Data.List.Extra (snoc)
+import Data.List.NonEmpty (NonEmpty)
 import qualified Data.Map as M
 import Data.Maybe
 import Data.Monoid hiding (Ap)
 import Data.Set (fromList)
 import qualified Data.Set as S
 
-typeOf :: GlobalContext -> M.Map Id Term -> M.Map Id Term -> Term -> UnifyM (Term, S.Set Constraint)
-typeOf gcxt mcxt cxt t =
+typeOf :: Level -> GlobalContext -> M.Map Id Term -> M.Map Id Term -> Term -> UnifyM (Term, S.Set Constraint)
+typeOf level gcxt mcxt cxt t =
   case t of
     Local i -> mzero
-    Free i -> foldMap (pure . (,S.empty)) $ M.lookup i cxt
-    Meta i -> mzero
+    Free _ i -> foldMap (pure . (,S.empty)) $ M.lookup i cxt
+    Meta _ i -> mzero
     Global i ->
       maybe
         undefined
@@ -44,7 +45,7 @@ typeOf gcxt mcxt cxt t =
                 Pi from to -> (from, to)
                 _ -> error "typeOf: Ap: not a Pi"
           optional (typeOf' mcxt cxt r)
-            <&> ((subst r 0 to,) . (cl <>) . foldMap (\(tpr, cr) -> cr <> S.singleton (from, tpr)))
+            <&> ((subst r 0 to,) . (cl <>) . foldMap (\(tpr, cr) -> cr <> S.singleton (from, tpr, level)))
         )
         <|>
         -- NOTE: when `typeOf' mcxt cxt l` failed
@@ -52,29 +53,29 @@ typeOf gcxt mcxt cxt t =
           let Lam argType body = l
           (rType, cs1) <- typeOf' mcxt cxt r
           (type', cs2) <- typeOf' mcxt cxt (subst r 0 body)
-          pure (type', cs1 <> cs2 <> S.singleton (rType, argType))
+          pure (type', cs1 <> cs2 <> S.singleton (rType, argType, level))
     Lam arg b -> do
       v <- lift gen
       (to, cs) <-
         typeOf
+          (level + 1)
           gcxt
           mcxt
           (M.insert v arg cxt)
-          (subst (Free v) 0 b)
+          (subst (Free level v) 0 b)
       return
-        ( Pi arg (substFV (Local 0) v (raise 1 to)),
-          cs <> S.singleton (arg, arg)
-        )
+        (Pi arg (substFV (Local 0) v (raise 1 to)), cs)
     Pi from to -> do
       v <- lift gen
-      maybeFromUnification <- optional $ typeOf' mcxt cxt from
-      (toTp, toCs) <- typeOf' mcxt (M.insert v from cxt) (subst (Free v) 0 to)
+      cs <-
+        (uncurry (<>) . first (S.singleton . (Type,,level)) <$> typeOf' mcxt cxt from)
+          <|> pure mempty
+      (toTp, toCs) <- typeOf (level + 1) gcxt mcxt (M.insert v from cxt) (subst (Free level v) 0 to)
       return
         ( Type,
-          foldMap snd maybeFromUnification
+          cs
             <> toCs
-            <> foldMap (S.singleton . (Type,) . fst) maybeFromUnification
-            <> S.singleton (Type, toTp)
+            <> S.singleton (Type, toTp, level + 1)
         )
     Case x (Just inductive) cases -> do
       (type', cs) <- typeOf' mcxt cxt x
@@ -97,13 +98,13 @@ typeOf gcxt mcxt cxt t =
                     )
                 let body' =
                       foldr
-                        (\(i, v) body'' -> subst (Free v) i body'')
+                        (\(i, v) -> subst (Free (level + length arguments + length parameters) v) i)
                         body
                         (zip [0 ..] (reverse (fst <$> vs)))
                 typeOf' mcxt (cxt <> M.fromList vs) body'
             )
       let y : ys = returnTypes
-          everyBranchReturnsSame = fromList ((y,) <$> ys)
+          everyBranchReturnsSame = fromList ((y,,level) <$> ys)
       pure (head returnTypes, foldl (<>) mempty cs' <> everyBranchReturnsSame)
       where
         spinify :: Term -> [Term]
@@ -111,13 +112,13 @@ typeOf gcxt mcxt cxt t =
         spinify x = [x]
     Case x _ cases -> undefined
   where
-    typeOf' = typeOf gcxt
+    typeOf' = typeOf level gcxt
 
 infer :: GlobalContext -> Term -> Maybe (Term, Subst, S.Set Constraint)
 infer gcxt t = listToMaybe . runUnifyM $ go
   where
     go = do
-      (tp, cs) <- typeOf gcxt M.empty M.empty t
+      (tp, cs) <- typeOf 0 gcxt M.empty M.empty t
       (subst, flexflex) <- unify Context {metas = M.empty} cs
       return (manySubst subst tp, subst, cs)
 
@@ -125,6 +126,6 @@ infer' :: GlobalContext -> M.Map Id Term -> Term -> Term -> Maybe (Term, Term)
 infer' gctx ctx t1 t2 = listToMaybe . runUnifyM $ go
   where
     go = do
-      (tp, cs) <- typeOf gctx M.empty ctx t1
-      (subst, flexflex) <- unify Context {metas = M.empty} (cs <> S.singleton (tp, t2))
+      (tp, cs) <- typeOf 0 gctx M.empty ctx t1
+      (subst, flexflex) <- unify Context {metas = M.empty} (cs <> S.singleton (tp, t2, 0))
       return (manySubst subst t1, manySubst subst tp)

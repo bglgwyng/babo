@@ -12,10 +12,10 @@ import GHC.OldList (intercalate)
 import Syntax.Literal
 
 data Term
-  = Free Id
+  = Free Level Id
   | Global QName
   | Local Index
-  | Meta Id
+  | Meta Level Id
   | Type
   | Ap Term Term
   | Lam Term Term
@@ -45,10 +45,10 @@ instance Show Inductive where
   show Inductive {name} = show name
 
 instance Show Term where
-  showsPrec _ (Free i) = shows i . showString "$"
+  showsPrec _ (Free _ i) = shows i . showString "$"
   showsPrec _ (Global x) = shows x
   showsPrec _ (Local i) = shows i . showString "!"
-  showsPrec _ (Meta i) = shows i . showString "?"
+  showsPrec _ (Meta _ i) = shows i . showString "?"
   showsPrec _ Type = showString "Type"
   showsPrec prec (Ap t1 t2) = showParen (prec > 3) $ showsPrec 3 t1 . showString " " . showsPrec 4 t2
   showsPrec prec (Lam t1 t2) = showParen (prec > 0) $ showString "\\_: " . shows t1 . showString " -> " . shows t2

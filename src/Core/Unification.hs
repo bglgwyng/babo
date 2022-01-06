@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE TupleSections #-}
 
 module Core.Unification
   ( Term (..),
@@ -81,7 +82,7 @@ subst new i t = case t of
 -- | Substitute a term for all metavariables with a given identifier.
 substMV :: Term -> Id -> Term -> Term
 substMV new i t = case t of
-  Meta j -> if i == j then new else Meta j
+  Meta _ j | i == j -> new
   Ap l r -> substMV new i l `Ap` substMV new i r
   Lam tp body -> Lam (substMV new i tp) (substMV (raise 1 new) i body)
   Pi tp body -> Pi (substMV new i tp) (substMV (raise 1 new) i body)
@@ -90,7 +91,7 @@ substMV new i t = case t of
 -- | Substitute a term for all free variable with a given identifier.
 substFV :: Term -> Id -> Term -> Term
 substFV new i t = case t of
-  Free j -> if i == j then new else Free j
+  Free _ j | i == j -> new
   Ap l r -> substFV new i l `Ap` substFV new i r
   Lam tp body -> Lam (substFV new i tp) (substFV (raise 1 new) i body)
   Pi tp body -> Pi (substFV new i tp) (substFV (raise 1 new) i body)
@@ -99,7 +100,7 @@ substFV new i t = case t of
 -- | Gather all the metavariables in a term into a set.
 metavars :: Term -> S.Set Id
 metavars t = case t of
-  Meta j -> S.singleton j
+  Meta _ j -> S.singleton j
   Ap l r -> metavars l <> metavars r
   Lam tp body -> metavars tp <> metavars body
   Pi tp body -> metavars tp <> metavars body
@@ -107,17 +108,17 @@ metavars t = case t of
 
 -- | Returns @True@ if a term has no free variables and is therefore a
 -- valid candidate for a solution to a metavariable.
-isClosed :: Term -> Bool
-isClosed t = case t of
-  Free i -> False
-  Local i -> True
-  Global _ -> True
-  Meta j -> True
-  Type -> True
-  Ap l r -> isClosed l && isClosed r
-  Lam tp body -> isClosed tp && isClosed body
-  Pi tp body -> isClosed tp && isClosed body
-  Case x _ alts -> isClosed x && all (isClosed . snd) alts
+isClosed :: Level -> Term -> Bool
+isClosed level t = case t of
+  Free l i
+    | l >= level -> False
+  Ap l r -> isClosed' l && isClosed' r
+  Lam tp body -> isClosed' tp && isClosed (level + 1) body
+  Pi tp body -> isClosed' tp && isClosed (level + 1) body
+  Case x _ alts -> isClosed' x && all (isClosed' . snd) alts
+  _ -> True
+  where
+    isClosed' = isClosed level
 
 -- | Implement reduction for the language. Given a term, normalize it.
 -- This boils down mainly to applying lambdas to their arguments and all
@@ -154,58 +155,58 @@ applyApTelescope = foldl' Ap
 
 type UnifyM = LogicT (Gen Id)
 
-type Constraint = (Term, Term)
+type Constraint = (Term, Term, Level)
 
 -- | Given a constraint, produce a collection of equivalent but
 -- simpler constraints. Any solution for the returned set of
 -- constraints should be a solution for the original constraint.
 simplify :: Constraint -> UnifyM (S.Set Constraint)
-simplify (t1, t2)
+simplify (t1, t2, level)
   | t1 == t2 && S.null (metavars t1) = return S.empty
-  | reduce t1 /= t1 = simplify (reduce t1, t2)
-  | reduce t2 /= t2 = simplify (t1, reduce t2)
-  | (Free i, cxt) <- peelApTelescope t1,
-    (Free j, cxt') <- peelApTelescope t2 = do
+  | reduce t1 /= t1 = simplify (reduce t1, t2, level)
+  | reduce t2 /= t2 = simplify (t1, reduce t2, level)
+  | (Free _ i, cxt) <- peelApTelescope t1,
+    (Free _ j, cxt') <- peelApTelescope t2 = do
     guard (i == j && length cxt == length cxt')
-    fold <$> mapM simplify (zip cxt cxt')
+    fold <$> mapM simplify (zipWith (,,level) cxt cxt')
   | (Global i, cxt) <- peelApTelescope t1,
     (Global j, cxt') <- peelApTelescope t2 = do
     guard (i == j && length cxt == length cxt')
-    fold <$> mapM simplify (zip cxt cxt')
+    fold <$> mapM simplify (zipWith (,,level) cxt cxt')
   | Lam tp1 body1 <- t1,
     Lam tp2 body2 <- t2 = do
-    v <- Free <$> lift gen
+    v <- Free level <$> lift gen
     return $
       S.fromList
-        [ (subst v 0 body1, subst v 0 body2),
-          (tp1, tp2)
+        [ (subst v 0 body1, subst v 0 body2, level + 1),
+          (tp1, tp2, level)
         ]
   | Pi tp1 body1 <- t1,
     Pi tp2 body2 <- t2 = do
-    v <- Free <$> lift gen
+    v <- Free level <$> lift gen
     return $
       S.fromList
-        [ (subst v 0 body1, subst v 0 body2),
-          (tp1, tp2)
+        [ (subst v 0 body1, subst v 0 body2, level + 1),
+          (tp1, tp2, level)
         ]
   | otherwise =
-    if isStuck t1 || isStuck t2 then return $ S.singleton (t1, t2) else mzero
+    if isStuck t1 || isStuck t2 then return $ S.singleton (t1, t2, level) else mzero
 
 type Subst = M.Map Id Term
 
 -- | Generate all possible solutions to flex-rigid equations as an
 -- infinite list of computations producing finite lists.
 tryFlexRigid :: Constraint -> [UnifyM [Subst]]
-tryFlexRigid (t1, t2)
-  | Meta i <- t1,
+tryFlexRigid (t1, t2, _)
+  | Meta level i <- t1,
     (stuckTerm, cxt2) <- peelApTelescope t2,
     not (i `S.member` metavars t2) =
-    [pure [M.singleton i t2] | isClosed t2]
+    [pure [M.singleton i t2] | isClosed level t2]
   -- proj (length cxt1) i stuckTerm 0
-  | Meta i <- t2,
+  | Meta level i <- t2,
     (stuckTerm, cxt2) <- peelApTelescope t1,
     not (i `S.member` metavars t1) =
-    [pure [M.singleton i t1 | isClosed t1]]
+    [pure [M.singleton i t1 | isClosed level t1]]
   | otherwise = []
 
 -- | The reflexive transitive closure of @simplify@
@@ -237,8 +238,8 @@ unify ctx@Context {metas = s} cs = do
       let psubsts = tryFlexRigid (S.findMax flexrigids)
       trySubsts psubsts (flexrigids <> flexflexes)
   where
-    applySubst s = S.map (\(t1, t2) -> (manySubst s t1, manySubst s t2))
-    flexflex (t1, t2) = isStuck t1 && isStuck t2
+    applySubst s = S.map (\(t1, t2, level) -> (manySubst s t1, manySubst s t2, level))
+    flexflex (t1, t2, _) = isStuck t1 && isStuck t2
     trySubsts [] cs = mzero
     trySubsts (mss : psubsts) cs = do
       ss <- mss
