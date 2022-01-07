@@ -14,10 +14,12 @@ data Term
   | Local Index
   | Meta Level Id
   | Type
+  | TypeConstructor InductiveType
+  | DataConstructor InductiveType LocalName
   | Ap Term Term
   | Lam Term Term
   | Pi Term Term
-  | Case Term (Maybe Inductive) [(Pattern, Term)]
+  | Case Term (Maybe InductiveType) [(Pattern, Term)]
   deriving (Eq, Ord)
 
 data Pattern
@@ -28,30 +30,38 @@ data Pattern
 
 data ArgumentType = Explicit | Implicit deriving (Show, Eq, Ord)
 
-data Argument = Argument LocalName Term ArgumentType deriving (Show, Eq, Ord)
+data Argument = Argument
+  { name :: LocalName,
+    type' :: Term,
+    -- FIXME:
+    argType :: ArgumentType
+  }
+  deriving (Show, Eq, Ord)
 
-data Inductive = Inductive
+data InductiveType = InductiveType
   { qname :: QName,
-    variants :: [(QName, [Argument], Term)],
+    variants :: [(LocalName, [Argument], Term)],
     params :: [Argument],
     indices :: [Argument]
   }
   deriving (Eq, Ord)
 
-instance Show Inductive where
-  show Inductive {qname} = show qname
+instance Show InductiveType where
+  show InductiveType {qname} = show qname
 
 instance Show Term where
   showsPrec _ (Free _ i) = shows i . showString "$"
   showsPrec _ (Global x) = shows x
   showsPrec _ (Local i) = shows i . showString "!"
   showsPrec _ (Meta _ i) = shows i . showString "?"
+  showsPrec _ (TypeConstructor InductiveType {qname}) = shows qname
+  showsPrec _ (DataConstructor _ name) = shows name
   showsPrec _ Type = showString "Type"
   showsPrec prec (Ap t1 t2) = showParen (prec > 3) $ showsPrec 3 t1 . showString " " . showsPrec 4 t2
   showsPrec prec (Lam t1 t2) = showParen (prec > 0) $ showString "\\_: " . shows t1 . showString " -> " . shows t2
   showsPrec prec (Pi t1 t2) = showParen (prec > 1) $ showsPrec 2 t1 . showString " -> " . showsPrec 1 t2
-  showsPrec _ (Case x inductive t2) =
-    showString "case " . shows x . maybe id ((showString " in " .) . shows) inductive
+  showsPrec _ (Case x ind t2) =
+    showString "case " . shows x . maybe id ((showString " in " .) . shows) ind
       . showString " { "
       . foldl1 (\x y -> x . showString "; " . y) (showAlt <$> t2)
       . showString " }"

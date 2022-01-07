@@ -56,12 +56,12 @@ subst new i t = case t of
   Ap l r -> subst new i l `Ap` subst new i r
   Lam arg body -> Lam (subst new i arg) (subst (raise 1 new) (i + 1) body)
   Pi arg body -> Pi (subst new i arg) (subst (raise 1 new) (i + 1) body)
-  Case x (Just inductive) branches ->
-    Case (subst new i x) (Just inductive) $
+  Case x (Just ind) branches ->
+    Case (subst new i x) (Just ind) $
       ( \case
           (Constructor qname, body) ->
-            let Inductive {variants} = inductive
-                Just (_, argument, _) = find (\(qname', _, _) -> qname == qname') variants
+            let InductiveType {qname = QName {namespace}, variants} = ind
+                Just (_, argument, _) = find (\(qname', _, _) -> qname == QName namespace qname') variants
              in ( Constructor qname,
                   subst
                     (raise (length argument) new)
@@ -160,13 +160,10 @@ simplify (t1, t2, level)
   | t1 == t2 && S.null (metavars t1) = pure S.empty
   | reduce t1 /= t1 = simplify (reduce t1, t2, level)
   | reduce t2 /= t2 = simplify (t1, reduce t2, level)
-  | (Free _ i, cxt) <- peelApTelescope t1,
-    (Free _ j, cxt') <- peelApTelescope t2 = do
-    guard (i == j && length cxt == length cxt')
-    fold <$> mapM simplify (zipWith (,,level) cxt cxt')
-  | (Global i, cxt) <- peelApTelescope t1,
-    (Global j, cxt') <- peelApTelescope t2 = do
-    guard (i == j && length cxt == length cxt')
+  | (x, cxt) <- peelApTelescope t1,
+    (y, cxt') <- peelApTelescope t2,
+    irreducible x && irreducible y = do
+    guard (x == y && length cxt == length cxt')
     fold <$> mapM simplify (zipWith (,,level) cxt cxt')
   | Lam arg1 body1 <- t1,
     Lam arg2 body2 <- t2 = do
@@ -186,6 +183,11 @@ simplify (t1, t2, level)
         ]
   | otherwise =
     if isStuck t1 || isStuck t2 then pure $ S.singleton (t1, t2, level) else mzero
+  where
+    irreducible (Free _ _) = True
+    irreducible (TypeConstructor _) = True
+    irreducible (DataConstructor _ _) = True
+    irreducible _ = False
 
 type Subst = M.Map Id Term
 

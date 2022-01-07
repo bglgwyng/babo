@@ -7,7 +7,7 @@ import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
 import Control.Monad (foldM, forM, unless)
 import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), MonadTrans (lift), cont, runCont)
 import Control.Monad.Gen (Gen, GenT, gen)
-import Core.Term (Inductive (..))
+import Core.Term (InductiveType (..), Term (..))
 import qualified Core.Term as T
 import Core.Unification (subst)
 import Data.Bifunctor (bimap)
@@ -85,7 +85,7 @@ desugarExpression gcxt = desugar'
           go xs [(cxt, ([], body))] = desugar' cxt body
           go (x : xs) [(cxt, (Variable name : ys, body))] = go xs [(setAt x name cxt, (ys, body))]
           go (x : xs) branches =
-            T.Case (T.Local x) inductive
+            T.Case (T.Local x) ind
               <$> forM
                 (groupBy (on equivalent (head . fst . snd)) branches)
                 ( \cases ->
@@ -112,16 +112,16 @@ desugarExpression gcxt = desugar'
                           _ -> error "?"
                 )
             where
-              inductive =
+              ind =
                 let headPatterns = head . fst . snd <$> branches
                     constructorPatterns = catMaybes ((\case Data name _ -> Just name; _ -> Nothing) <$> headPatterns)
-                    inductives =
+                    indNominees =
                       traverse
-                        (\case Just (DataConstructor _ x) -> Just x; _ -> Nothing)
+                        (\case Just (Context.Definition type' value) -> Just value; _ -> Nothing)
                         (flip M.lookup gcxt <$> constructorPatterns)
                  in do
-                      x : _ <- inductives
-                      pure x
+                      DataConstructor ind _ : _ <- indNominees
+                      pure ind
           go x y = error (show (x, y))
           equivalent :: AST.Pattern -> AST.Pattern -> Bool
           equivalent (Data x _) (Data y _) = x == y

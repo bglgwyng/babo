@@ -28,16 +28,18 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
     (params', cxt') <- lift $ desugarArguments cxt [] params
     let paramsArity = length params'
     bodyType <- lift $ maybe (pure T.Type) (desugarExpression cxt []) maybeType
-    let type' = foldr T.Pi bodyType ((\(T.Argument _ x _) -> x) <$> params')
-        typeName = QName [] name
-        typeDefinition = singleton typeName TypeConstructor {type'}
+    -- FIXME:
+    let namespace = []
+        type' = foldr T.Pi bodyType ((\(T.Argument _ x _) -> x) <$> params')
+        typeName = QName namespace name
+        typeDefinition = singleton typeName (Context.Definition {type' = type', value = T.TypeConstructor undefined})
     variants' <-
       forM
         variants
         ( \Variant {name = name', args} -> do
             (argTypes, cxt') <- lift $ desugarArguments (cxt <> typeDefinition) ((\(T.Argument x _ _) -> x) <$> params') args
             pure
-              ( QName [] name',
+              ( name',
                 argTypes,
                 foldl
                   T.Ap
@@ -45,8 +47,8 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
                   (T.Local . (+ length argTypes) <$> [paramsArity - 1, paramsArity - 2 .. 0])
               )
         )
-    let inductive =
-          T.Inductive
+    let ind =
+          T.InductiveType
             { qname = typeName,
               T.variants = variants',
               T.params = params',
@@ -55,7 +57,13 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
     pure $
       Just $
         fromList
-          ((typeName, TypeConstructor {type', inductive}) : ((\(x, _, y) -> (x, DataConstructor y inductive)) <$> variants'))
+          ( (typeName, Context.Definition type' (T.TypeConstructor ind)) :
+            ( ( \(x, _, y) ->
+                  (QName namespace x, Context.Definition y (T.DataConstructor ind x))
+              )
+                <$> variants'
+            )
+          )
 elaborate' cxt AST.Declaration {name, args, type'} =
   do
     (args', cxt') <- lift $ desugarArguments cxt [] args

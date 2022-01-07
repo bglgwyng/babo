@@ -7,7 +7,7 @@ import Control.Arrow (Arrow (first, second), (***), (>>>))
 import Control.Monad
 import Control.Monad.Gen
 import Control.Monad.Trans
-import Core.Term (Inductive (..))
+import Core.Term (InductiveType (..))
 import qualified Core.Term as T
 import Core.Unification
 import Data.Foldable (find)
@@ -35,6 +35,10 @@ typeOf level gcxt mcxt cxt t =
         (pure . (type' >>> (,mempty)))
         $ M.lookup i gcxt
     Type -> pure (Type, S.empty)
+    TypeConstructor InductiveType {params, indices} -> pure (foldr T.Pi Type (T.type' <$> (params <> indices)), mempty)
+    DataConstructor InductiveType {params, variants} qname ->
+      let Just (_, args, toType) = find (\(x, _, _) -> x == qname) variants
+       in pure (foldr T.Pi toType (T.type' <$> args), mempty)
     Ap l r -> do
       (lType, cs) <- typeOf' mcxt cxt l
       case lType of
@@ -68,26 +72,27 @@ typeOf level gcxt mcxt cxt t =
             <> toCs
             <> S.singleton (Type, toType, level + 1)
         )
-    Case x (Just inductive) cases -> do
+    Case x (Just ind) cases -> do
       (xType, cs) <- typeOf' mcxt cxt x
-      let Inductive {qname = inductiveName, params, indices, variants} = inductive
+      let InductiveType {qname = indName, params, indices, variants} = ind
+          QName {namespace} = indName
       -- TODO: is reduce necessary?
       (spine, cs'') <- case peelApTelescope (reduce xType) of
         (Global name, spine)
-          | name == inductiveName -> pure (spine, mempty)
+          | name == indName -> pure (spine, mempty)
           | otherwise ->
-            error (show inductiveName <> " != " <> show name)
+            error (show indName <> " != " <> show name)
         _ -> do
           paramMetas <- forM params (const $ T.Meta level <$> lift gen)
           indexMetas <- forM indices (const $ T.Meta level <$> lift gen)
           let spine = paramMetas <> indexMetas
-          pure (spine, S.singleton (xType, applyApTelescope (Global inductiveName) spine))
+          pure (spine, S.singleton (xType, applyApTelescope (Global indName) spine))
       (toTypes, cs') <-
         unzip
           <$> forM
             cases
             ( \(T.Constructor qname, body) -> do
-                let Just (_, args, _) = find (\(qname', _, _) -> qname == qname') variants
+                let Just (_, args, _) = find (\(qname', _, _) -> qname == QName namespace qname') variants
                 let params' = zip (reverse (take (length params) spine)) [0 ..]
                 vs <-
                   forM
