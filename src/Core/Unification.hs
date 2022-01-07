@@ -59,10 +59,10 @@ subst new i t = case t of
   Case x (Just ind) branches ->
     Case (subst new i x) (Just ind) $
       ( \case
-          (Constructor qname, body) ->
+          (Constructor name, body) ->
             let InductiveType {qname = QName {namespace}, variants} = ind
-                Just (_, argument, _) = find (\(qname', _, _) -> qname == QName namespace qname') variants
-             in ( Constructor qname,
+                Just (argument, _) = M.lookup name variants
+             in ( Constructor name,
                   subst
                     (raise (length argument) new)
                     (i + length argument)

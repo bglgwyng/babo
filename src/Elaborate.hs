@@ -40,17 +40,18 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
             (argTypes, cxt') <- lift $ desugarArguments (cxt <> typeDefinition) ((\(T.Argument x _ _) -> x) <$> params') args
             pure
               ( name',
-                argTypes,
-                foldl
-                  T.Ap
-                  (T.Global (QName [] name))
-                  (T.Local . (+ length argTypes) <$> [paramsArity - 1, paramsArity - 2 .. 0])
+                ( argTypes,
+                  foldl
+                    T.Ap
+                    (T.Global (QName [] name))
+                    (T.Local . (+ length argTypes) <$> [paramsArity - 1, paramsArity - 2 .. 0])
+                )
               )
         )
     let ind =
           T.InductiveType
             { qname = typeName,
-              T.variants = variants',
+              T.variants = fromList variants',
               T.params = params',
               T.indices = []
             }
@@ -58,7 +59,7 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
       Just $
         fromList
           ( (typeName, Context.Definition type' (T.TypeConstructor ind)) :
-            ( ( \(x, _, y) ->
+            ( ( \(x, (_, y)) ->
                   (QName namespace x, Context.Definition y (T.DataConstructor ind x))
               )
                 <$> variants'

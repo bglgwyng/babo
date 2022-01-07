@@ -4,6 +4,7 @@ import Common
 import Control.Arrow ((>>>))
 import Data.List.NonEmpty (NonEmpty, toList)
 import Data.List.NonEmpty.Extra (NonEmpty)
+import Data.Map (Map)
 import GHC.Exts (Any)
 import GHC.OldList (intercalate)
 import Syntax.Literal
@@ -23,7 +24,7 @@ data Term
   deriving (Eq, Ord)
 
 data Pattern
-  = Constructor QName
+  = Constructor LocalName
   | Literal Literal
   | Self
   deriving (Eq, Ord)
@@ -40,7 +41,7 @@ data Argument = Argument
 
 data InductiveType = InductiveType
   { qname :: QName,
-    variants :: [(LocalName, [Argument], Term)],
+    variants :: Map LocalName ([Argument], Term),
     params :: [Argument],
     indices :: [Argument]
   }

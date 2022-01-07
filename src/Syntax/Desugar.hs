@@ -91,8 +91,8 @@ desugarExpression gcxt = desugar'
                 ( \cases ->
                     let ((_, (headCase : _, _)) : _) = cases
                      in case headCase of
-                          Data x argPats ->
-                            (T.Constructor x,)
+                          Data QName {name} argPats ->
+                            (T.Constructor name,)
                               <$> go ([arity - 1, arity - 2 .. 0] ++ ((arity +) <$> xs)) (introduce <$> cases)
                             where
                               -- FIXME:

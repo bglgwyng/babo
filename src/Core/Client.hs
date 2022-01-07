@@ -36,8 +36,8 @@ typeOf level gcxt mcxt cxt t =
         $ M.lookup i gcxt
     Type -> pure (Type, S.empty)
     TypeConstructor InductiveType {params, indices} -> pure (foldr T.Pi Type (T.type' <$> (params <> indices)), mempty)
-    DataConstructor InductiveType {params, variants} qname ->
-      let Just (_, args, toType) = find (\(x, _, _) -> x == qname) variants
+    DataConstructor InductiveType {params, variants} name ->
+      let Just (args, toType) = M.lookup name variants
        in pure (foldr T.Pi toType (T.type' <$> args), mempty)
     Ap l r -> do
       (lType, cs) <- typeOf' mcxt cxt l
@@ -91,8 +91,8 @@ typeOf level gcxt mcxt cxt t =
         unzip
           <$> forM
             cases
-            ( \(T.Constructor qname, body) -> do
-                let Just (_, args, _) = find (\(qname', _, _) -> qname == QName namespace qname') variants
+            ( \(T.Constructor name, body) -> do
+                let Just (args, _) = M.lookup name variants
                 let params' = zip (reverse (take (length params) spine)) [0 ..]
                 vs <-
                   forM
