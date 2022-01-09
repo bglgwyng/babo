@@ -3,7 +3,7 @@ module Core.Client (infer) where
 import Common
 import Context
 import Control.Applicative
-import Control.Arrow (Arrow (first, second), (***), (>>>))
+import Control.Arrow (Arrow (first, second, (&&&)), (***), (>>>))
 import Control.Monad
 import Control.Monad.Gen
 import Control.Monad.Trans
@@ -21,10 +21,9 @@ import Data.Maybe
 import Data.Monoid hiding (Ap)
 import Data.Set (fromList)
 import qualified Data.Set as S
-import Debug.Trace (traceShowM)
 
-typeOf :: Level -> GlobalContext -> M.Map Id Term -> M.Map Id Term -> Term -> UnifyM (Term, S.Set Constraint)
-typeOf level gcxt mcxt cxt t =
+typeOf :: Level -> Context -> M.Map Id Term -> M.Map Id Term -> Term -> UnifyM (Term, S.Set Constraint)
+typeOf level gcxt@Context {globals} mcxt cxt t = 
   case t of
     Local i -> mzero
     Free _ i -> foldMap (pure . (,S.empty)) $ M.lookup i cxt
@@ -33,22 +32,18 @@ typeOf level gcxt mcxt cxt t =
       maybe
         undefined
         (pure . (type' >>> (,mempty)))
-        $ M.lookup i gcxt
+        $ M.lookup i globals
     Type -> pure (Type, S.empty)
-    TypeConstructor InductiveType {params, indices} -> pure (foldr T.Pi Type (T.type' <$> (params <> indices)), mempty)
-    DataConstructor InductiveType {params, variants} name ->
-      let Just (args, toType) = M.lookup name variants
-       in pure (foldr T.Pi toType (T.type' <$> args), mempty)
     Ap l r -> do
       (lType, cs) <- typeOf' mcxt cxt l
       case lType of
         Pi from to ->
-          optional (typeOf' mcxt cxt r)
+          typeOf' mcxt cxt r
             <&> ( (subst r 0 to,)
                     . (cs <>)
-                    . foldMap (uncurry (<>) . first (S.singleton . (from,,level)))
+                    . (uncurry (<>) . first (S.singleton . (from,,level)))
                 )
-        _ -> error "typeOf: Ap: not a Pi"
+        _ -> error $ "typeOf:" <> show (l) <> " not a Pi"
     Lam arg b -> do
       v <- lift gen
       (toType, cs) <-
@@ -77,7 +72,7 @@ typeOf level gcxt mcxt cxt t =
       let InductiveType {qname = indName, params, indices, variants} = ind
           QName {namespace} = indName
       -- TODO: is reduce necessary?
-      (spine, cs'') <- case peelApTelescope (reduce xType) of
+      (spine, cs'') <- case peelApTelescope (reduce gcxt xType) of
         (Global name, spine)
           | name == indName -> pure (spine, mempty)
           | otherwise ->
@@ -92,7 +87,7 @@ typeOf level gcxt mcxt cxt t =
           <$> forM
             cases
             ( \(T.Constructor name, body) -> do
-                let Just (args, _) = M.lookup name variants
+                let Just (_, (args, _)) = find (\(name', _) -> name' == name) variants
                 let params' = zip (reverse (take (length params) spine)) [0 ..]
                 vs <-
                   forM
@@ -114,10 +109,10 @@ typeOf level gcxt mcxt cxt t =
   where
     typeOf' = typeOf level gcxt
 
-infer :: GlobalContext -> M.Map Id Term -> Term -> Term -> Maybe (Term, Term)
-infer gcxt cxt t1 t2 = listToMaybe . runUnifyM $ go
+infer :: GlobalContext -> M.Map Id Term -> Term -> Term -> UnifyM (Term, Term, Subst, S.Set Constraint)
+infer gcxt cxt t1 t2 = go
   where
     go = do
-      (tp, cs) <- typeOf 0 gcxt M.empty cxt t1
-      (subst, flexflex) <- unify Context {metas = M.empty} (cs <> S.singleton (tp, t2, 0))
-      pure (manySubst subst t1, manySubst subst tp)
+      (tp, cs) <- typeOf 0 Context {metas = M.empty, globals=gcxt} M.empty cxt t1
+      (subst, flexflex) <- unify Context {metas = M.empty, globals=gcxt} (cs <> S.singleton (tp, t2, 0))
+      pure (manySubst subst t1, manySubst subst tp, subst, flexflex)

@@ -15,8 +15,6 @@ data Term
   | Local Index
   | Meta Level Id
   | Type
-  | TypeConstructor InductiveType
-  | DataConstructor InductiveType LocalName
   | Ap Term Term
   | Lam Term Term
   | Pi Term Term
@@ -29,19 +27,19 @@ data Pattern
   | Self
   deriving (Eq, Ord)
 
-data ArgumentType = Explicit | Implicit deriving (Show, Eq, Ord)
+data Plicity = Explicit | Implicit deriving (Show, Eq, Ord)
 
 data Argument = Argument
   { name :: LocalName,
     type' :: Term,
     -- FIXME:
-    argType :: ArgumentType
+    plicity :: Plicity
   }
   deriving (Show, Eq, Ord)
 
 data InductiveType = InductiveType
   { qname :: QName,
-    variants :: Map LocalName ([Argument], Term),
+    variants :: [(LocalName, ([Argument], Term))],
     params :: [Argument],
     indices :: [Argument]
   }
@@ -51,12 +49,12 @@ instance Show InductiveType where
   show InductiveType {qname} = show qname
 
 instance Show Term where
-  showsPrec _ (Free _ i) = shows i . showString "$"
+  showsPrec _ (Free scope i) = shows i . showString "$" . shows scope
   showsPrec _ (Global x) = shows x
   showsPrec _ (Local i) = shows i . showString "!"
   showsPrec _ (Meta _ i) = shows i . showString "?"
-  showsPrec _ (TypeConstructor InductiveType {qname}) = shows qname
-  showsPrec _ (DataConstructor _ name) = shows name
+  -- showsPrec _ (TypeConstructor InductiveType {qname}) = shows qname
+  -- showsPrec _ (DataConstructor _ name) = shows name
   showsPrec _ Type = showString "Type"
   showsPrec prec (Ap t1 t2) = showParen (prec > 3) $ showsPrec 3 t1 . showString " " . showsPrec 4 t2
   showsPrec prec (Lam t1 t2) = showParen (prec > 0) $ showString "\\_: " . shows t1 . showString " -> " . shows t2

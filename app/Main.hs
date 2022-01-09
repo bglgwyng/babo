@@ -4,7 +4,7 @@
 module Main where
 
 import Common (Id)
-import Context (GlobalContext, Inhabitant (Definition))
+import Context (GlobalContext)
 import Control.Monad (foldM, forM)
 import Control.Monad.Gen (Gen, MonadGen (gen), runGen)
 import Core.Term (Term (..))

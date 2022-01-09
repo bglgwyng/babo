@@ -12,6 +12,7 @@ $digit = 0-9
 $alpha = [a-zA-Z]
 @lsymbol = [a-z] [$alpha $digit \_ \']*
 @usymbol = [A-Z] [$alpha $digit \_ \']*
+@qlsymbol = \'[a-z] [$alpha $digit \_ \']*
 @namespace = [A-Z] [$alpha $digit]*
 @lsymbolQ = (@namespace \.)+ @lsymbol
 @usymbolQ = (@namespace \.)+ @usymbol
@@ -43,6 +44,7 @@ tokens :-
   \\                            { \s -> TokenBackslash }
   \_                            { \s -> TokenUnderscore }
   @lsymbol                      { \s -> TokenLSym s }
+  @qlsymbol                     { \s -> TokenQLSym s }
   @usymbol                      { \s -> TokenUSym s }
   @lsymbolQ                     { \s -> TokenLSymQ (qualified s) }
   @usymbolQ                     { \s -> TokenUSymQ (qualified s) }
@@ -68,6 +70,7 @@ data Token = TokenDatatype
            | TokenType
            | TokenString String
            | TokenLSym String
+           | TokenQLSym String
            | TokenUSym String
            | TokenLSymQ ([String], String)
            | TokenUSymQ ([String], String)

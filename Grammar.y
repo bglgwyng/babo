@@ -27,6 +27,7 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
     float { TokenFloat $$ }
     string { TokenString $$ }
     lsym { TokenLSym $$ }
+    qlsym { TokenQLSym $$ }
     usym { TokenUSym $$ }
     lsymQ { TokenLSymQ $$ }
     usymQ { TokenUSymQ $$ }
@@ -76,14 +77,15 @@ Variants :: { [Variant] }
           | Variant { [$1] }
           | Variant ';' Variants { $1 : $3 }
 
-LocalName :: { String }
+ArgumentName :: { String }
           : lsym { $1 }
+          | qlsym { $1 }
 
-LocalNames : LocalName { $1 :| [] }
-          | LocalName LocalNames { $1 :| toList $2 }
+ArgumentNames : ArgumentName { $1 :| [] }
+          | ArgumentName ArgumentNames { $1 :| toList $2 }
 
 Argument :: { Argument }
-          : LocalNames ':' Expression { ($1, Just $3, []) }
+          : ArgumentNames ':' Expression { ($1, Just $3, []) }
 Arguments_  :: { [Argument] }
           : Argument { [$1] }
           | Argument ',' Arguments_ { $1 : $3 }
@@ -95,6 +97,9 @@ Arguments :: { [Argument] }
 CommaSeperated :: { [Expression] }
           : Expression { [$1] }
           | Expression ',' CommaSeperated  { $1 : $3 }
+
+LocalName :: { LocalName }
+          : lsym { $1 }
 
 LocalName_ :: { LocalName }
           : LocalName { $1 }

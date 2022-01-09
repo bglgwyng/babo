@@ -117,11 +117,13 @@ desugarExpression gcxt = desugar'
                     constructorPatterns = catMaybes ((\case Data name _ -> Just name; _ -> Nothing) <$> headPatterns)
                     indNominees =
                       traverse
-                        (\case Just (Context.Definition type' value) -> Just value; _ -> Nothing)
+                        (\case Just (Context.DataConstructor _ type' value) -> Just value; _ -> Nothing)
                         (flip M.lookup gcxt <$> constructorPatterns)
                  in do
-                      DataConstructor ind _ : _ <- indNominees
-                      pure ind
+                      undefined
+          --  FIXME:
+          -- DataConstructor ind _ : _ <- indNominees
+          -- pure ind
           go x y = error (show (x, y))
           equivalent :: AST.Pattern -> AST.Pattern -> Bool
           equivalent (Data x _) (Data y _) = x == y
@@ -153,6 +155,13 @@ desugarExpression gcxt = desugar'
               else Nothing
           )
             <|> if qname `member` gcxt then Just (T.Global qname) else Nothing
+        definition :: QName -> Maybe (T.Argument, T.Term)
+        definition qname@QName {namespace, Common.name} =
+          if null namespace && name `elem` cxt
+            then Nothing
+            else undefined
+    -- )
+    --   <|> if qname `member` gcxt then Just (T.Global qname, T.Global qname) else Nothing
     lambda :: LocalContext -> [AST.Argument] -> AST.Expression -> (Gen Id) T.Term
     lambda cxt xs body = do
       (args, context) <- desugarArguments gcxt cxt xs
@@ -160,7 +169,7 @@ desugarExpression gcxt = desugar'
       body' <- desugarExpression gcxt context body
       pure $ foldr T.Lam body' argTypes
 
-desugarArguments :: GlobalContext -> LocalContext -> [AST.Argument] -> (Gen Id) ([T.Argument], LocalContext)
+desugarArguments :: GlobalContext -> LocalContext -> [AST.Argument] -> Gen Id ([T.Argument], LocalContext)
 desugarArguments gcxt = go
   where
     go :: LocalContext -> [AST.Argument] -> (Gen Id) ([T.Argument], LocalContext)
@@ -168,7 +177,10 @@ desugarArguments gcxt = go
     go cxt ((names, type', _) : xs) = do
       type'' <- maybe (T.Meta (length cxt) <$> gen) (desugarExpression gcxt cxt) type'
       (args, context) <- go (toList names <> cxt) xs
+      let bindName :: LocalName -> T.Argument
+          bindName ('\'' : name) = T.Argument name type'' T.Implicit
+          bindName name = T.Argument name type'' T.Explicit
       pure
-        ( toList ((\x -> T.Argument x type'' T.Explicit) <$> names) <> args,
+        ( toList (bindName <$> names) <> args,
           context <> reverse (toList names)
         )

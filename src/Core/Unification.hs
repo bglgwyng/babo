@@ -24,11 +24,15 @@ import Control.Monad.Gen
 import Control.Monad.Logic
 import Control.Monad.Trans
 import Core.Term
+    ( InductiveType(..),
+      Term(..),
+      Pattern(..) )
 import Data.Foldable
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Monoid hiding (Ap)
 import qualified Data.Set as S
+import Context (GlobalContext, Inhabitant (..))
 
 --------------------------------------------------
 ------------------ the language ------------------
@@ -61,7 +65,7 @@ subst new i t = case t of
       ( \case
           (Constructor name, body) ->
             let InductiveType {qname = QName {namespace}, variants} = ind
-                Just (argument, _) = M.lookup name variants
+                Just (_, (argument, _)) = find (\(name', _) -> name' == name) variants
              in ( Constructor name,
                   subst
                     (raise (length argument) new)
@@ -118,14 +122,22 @@ isClosed level t = case t of
 -- | Implement reduction for the language. Given a term, normalize it.
 -- This boils down mainly to applying lambdas to their arguments and all
 -- the appropriate congruence rules.
-reduce :: Term -> Term
-reduce = \case
-  Ap l r -> case reduce l of
-    Lam arg body -> reduce (subst r 0 body)
-    l' -> Ap l' (reduce r)
-  Lam arg body -> Lam (reduce arg) (reduce body)
-  Pi arg body -> Pi (reduce arg) (reduce body)
+reduce :: Context -> Term -> Term
+reduce cxt@Context {globals} = \case
+  Ap l r -> case reduce' l of
+    Lam arg body -> reduce' (subst r 0 body)
+    l' -> Ap l' (reduce' r)
+  Lam arg body -> Lam (reduce' arg) (reduce' body)
+  Pi arg body -> Pi (reduce' arg) (reduce' body)
+  x@(Global qname) -> maybe
+    (error "reduce: Global")
+    (\case
+        Definition {value} -> reduce' value
+        _ -> x) $
+      M.lookup qname globals
   x -> x
+  where
+    reduce' = reduce cxt
 
 -- | Check to see if a term is blocked on applying a metavariable.
 isStuck :: Term -> Bool
@@ -155,16 +167,16 @@ type Constraint = (Term, Term, Level)
 -- | Given a constraint, produce a collection of equivalent but
 -- simpler constraints. Any solution for the returned set of
 -- constraints should be a solution for the original constraint.
-simplify :: Constraint -> UnifyM (S.Set Constraint)
-simplify (t1, t2, level)
+simplify :: Context -> Constraint -> UnifyM (S.Set Constraint)
+simplify cxt@Context {globals} (t1, t2, level)
   | t1 == t2 && S.null (metavars t1) = pure S.empty
-  | reduce t1 /= t1 = simplify (reduce t1, t2, level)
-  | reduce t2 /= t2 = simplify (t1, reduce t2, level)
+  | reduce cxt t1 /= t1 = simplify' (reduce cxt t1, t2, level)
+  | reduce cxt t2 /= t2 = simplify' (t1, reduce cxt t2, level)
   | (x, cxt) <- peelApTelescope t1,
     (y, cxt') <- peelApTelescope t2,
     irreducible x && irreducible y = do
     guard (x == y && length cxt == length cxt')
-    fold <$> mapM simplify (zipWith (,,level) cxt cxt')
+    fold <$> mapM simplify' (zipWith (,,level) cxt cxt')
   | Lam arg1 body1 <- t1,
     Lam arg2 body2 <- t2 = do
     v <- Free level <$> lift gen
@@ -182,12 +194,18 @@ simplify (t1, t2, level)
           (arg1, arg2, level)
         ]
   | otherwise =
-    if isStuck t1 || isStuck t2 then pure $ S.singleton (t1, t2, level) else mzero
+    if isStuck t1 || isStuck t2
+      then pure $ S.singleton (t1, t2, level)
+      else mzero
   where
     irreducible (Free _ _) = True
-    irreducible (TypeConstructor _) = True
-    irreducible (DataConstructor _ _) = True
+    irreducible (Global qname) =
+      case M.lookup qname globals of
+        Just Definition {} -> False
+        Just _ -> True
+        Nothing -> undefined 
     irreducible _ = False
+    simplify' = simplify cxt
 
 type Subst = M.Map Id Term
 
@@ -207,10 +225,10 @@ tryFlexRigid (t1, t2, _)
   | otherwise = []
 
 -- | The reflexive transitive closure of @simplify@
-repeatedlySimplify :: S.Set Constraint -> UnifyM (S.Set Constraint)
-repeatedlySimplify cs = do
-  cs' <- fold <$> traverse simplify (S.toList cs)
-  if cs' == cs then pure cs else repeatedlySimplify cs'
+repeatedlySimplify :: Context -> S.Set Constraint -> UnifyM (S.Set Constraint)
+repeatedlySimplify cxt cs = do
+  cs' <- fold <$> traverse (simplify cxt) (S.toList cs)
+  if cs' == cs then pure cs else repeatedlySimplify cxt cs'
 
 manySubst :: Subst -> Term -> Term
 manySubst s t = M.foldrWithKey (flip substMV) t s
@@ -222,12 +240,12 @@ s1 <+> s2 = M.union (manySubst s1 <$> s2) s1
 -- | The top level function, given a substitution and a set of
 -- constraints, produce a solution substution and the resulting set of
 -- flex-flex equations.
-data Context = Context {metas :: Subst, globals :: M.Map String Term}
+data Context = Context {metas :: Subst, globals :: GlobalContext} deriving (Show)
 
 unify :: Context -> S.Set Constraint -> UnifyM (Subst, S.Set Constraint)
 unify cxt@Context {metas = s} cs = do
   let cs' = applySubst s cs
-  cs'' <- repeatedlySimplify cs'
+  cs'' <- repeatedlySimplify cxt cs'
   let (flexflexes, flexrigids) = S.partition flexflex cs''
   if S.null flexrigids
     then pure (s, flexflexes)
