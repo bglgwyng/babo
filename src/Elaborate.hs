@@ -1,8 +1,11 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PolyKinds #-}
+
 module Elaborate where
 
 import Common (Id, Level, LocalName, QName (QName, name))
+import Context (GlobalContext, Inhabitant (..))
+import qualified Context
 import Control.Arrow ((&&&), (>>>))
 import Control.Monad (foldM)
 import Control.Monad.Gen (Gen, MonadGen (gen), runGen)
@@ -21,9 +24,14 @@ import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
 import Syntax.AST
 import qualified Syntax.AST as AST
-import Syntax.Desugar
-import qualified Context
-import Context (GlobalContext, Inhabitant (..))
+import Syntax.Desugar (desugarArguments, desugarExpression)
+import qualified Syntax.Desugar as D
+
+-- foo :: GlobalContext -> D.GlobalContext
+-- foo xs = bar <$> xs
+--   where
+--     bar (DataConstructor args _ ind) = (args, Just ind)
+--     bar x = (args x, Nothing)
 
 elaborate' :: GlobalContext -> AST.TopLevelStatement -> UnifyM GlobalContext
 elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
@@ -42,9 +50,9 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
             typeName
             ( Context.TypeConstructor
                 { args = paramBinds,
-                  type' = foldr T.Pi `flip` paramTypes $  T.Type,
+                  type' = foldr T.Pi `flip` paramTypes $ T.Type,
                   -- FIXME:
-                  ind = undefined 
+                  ind = undefined
                 }
             )
     let bindParams = foldr T.Pi `flip` paramTypes
@@ -58,11 +66,11 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
               ( name,
                 ( args',
                   bindParams $
-                  foldr T.Pi `flip` argTypes $
-                  foldl
-                    T.Ap
-                    typeCon
-                    (T.Local . (+ length argTypes) <$> [paramsArity - 1, paramsArity - 2 .. 0])
+                    foldr T.Pi `flip` argTypes $
+                      foldl
+                        T.Ap
+                        typeCon
+                        (T.Local . (+ length argTypes) <$> [paramsArity - 1, paramsArity - 2 .. 0])
                 )
               )
         )
@@ -76,7 +84,7 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
     pure $
       fromList
         ( ( typeName,
-            TypeConstructor 
+            TypeConstructor
               { args = paramBinds,
                 type' = bindParams T.Type,
                 ind
@@ -84,7 +92,7 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
           ) :
           ( ( \(name, (args, type')) ->
                 ( QName namespace name,
-                  DataConstructor 
+                  DataConstructor
                     { args = fst $ unzipArgs args,
                       type',
                       ind

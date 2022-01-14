@@ -1,13 +1,16 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Syntax.Desugar where
 
 import Common
 import Context
 import Control.Applicative
 import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
-import Control.Monad (foldM, forM, unless)
+import Control.Monad (foldM, forM, guard, unless, (>=>))
 import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), MonadTrans (lift), cont, runCont)
 import Control.Monad.Gen (Gen, GenT, gen)
-import Core.Term (InductiveType (..), Term (..))
+import Control.Monad.Writer (MonadWriter (tell), WriterT)
+import Core.Term (InductiveType (..), Plicity (..), Term (..))
 import qualified Core.Term as T
 import Core.Unification (subst)
 import Data.Bifunctor (bimap)
@@ -16,15 +19,13 @@ import Data.Either (fromLeft)
 import Data.Either.Extra (fromRight)
 import Data.Function (on)
 import Data.Functor ((<&>))
-import Data.List (groupBy)
+import Data.List (find, groupBy)
 import Data.List.Extra (allSame, elemIndex)
 import Data.List.NonEmpty (NonEmpty (..), groupWith, groupWith1, nonEmpty, toList, uncons)
 import Data.List.NonEmpty.Extra (groupWith)
 import Data.Map as M (Map, delete, fromList, lookup, member, singleton)
-import Data.Maybe (catMaybes, fromJust, fromMaybe)
+import Data.Maybe (catMaybes, fromJust, fromMaybe, isNothing)
 import Data.Tuple.Extra (dupe, firstM)
-import GHC.Base (undefined)
-import GHC.Err (undefined)
 import Syntax.AST (TopLevelStatement (..))
 import qualified Syntax.AST as AST
 import Syntax.Literal
@@ -50,37 +51,50 @@ setAt i x xs = take i xs ++ [x] ++ drop (i + 1) xs
 data Match = Constructor QName | Literal Literal | Self
   deriving (Eq, Ord, Show)
 
+-- type GlobalContext = Map QName ([(LocalName, Plicity)], Maybe InductiveType)
+
 desugarExpression :: GlobalContext -> LocalContext -> AST.Expression -> Gen Id T.Term
 desugarExpression gcxt = desugar'
   where
     desugar' :: LocalContext -> AST.Expression -> Gen Id T.Term
-    desugar' cxt = \case
+    desugar' cxt x = fst <$> desugarHead cxt x
+    desugarHead :: LocalContext -> AST.Expression -> Gen Id (T.Term, [(LocalName, Plicity)])
+    desugarHead cxt = \case
       AST.Application head spine -> do
-        head' <- desugar' cxt head
-        spine <- forM spine (desugar'' . snd)
-        pure $ foldl T.Ap head' spine
-      AST.Identifier x ->
-        pure $ fromMaybe (error (show x)) (lookup x)
+        (head', args) <- desugarHead cxt head
+        (spine, args') <- apply (toList spine) args
+        pure (foldl T.Ap head' spine, args')
+        where
+          apply :: [AST.Disk] -> [(LocalName, Plicity)] -> Gen Id ([T.Term], [(LocalName, Plicity)])
+          apply [] args = pure ([], args)
+          apply xs []
+            | all (isNothing . fst) xs =
+              (,[]) <$> forM xs (desugar'' . snd)
+            | otherwise = error "?"
+          apply xs'@((Just name, x) : xs) ((arg, _) : args)
+            | name == arg = (first . (:) <$> desugar'' x) <*> apply xs args
+            | otherwise = (first . (:) . T.Meta scope <$> gen) <*> apply xs' args
+          apply ((Nothing, x) : xs) ((_, T.Explicit) : args) = (first . (:) <$> desugar'' x) <*> apply xs args
+          apply xs ((_, T.Implicit) : args) = (first . (:) . T.Meta scope <$> gen) <*> apply xs args
+      AST.Identifier x -> pure (lookup x)
       AST.ForAll xs from to ->
-        forall cxt (toList xs)
+        (,[]) <$> forall cxt (toList xs)
         where
           forall :: LocalContext -> [LocalName] -> Gen Id T.Term
           forall _ [] = desugar' (toList xs <> cxt) to
           forall cxt (x : xs) =
             T.Pi <$> desugar'' from <*> forall (extend cxt) xs
       AST.Arrow from to ->
-        T.Pi <$> desugar'' from <*> desugar' (extend cxt) to
+        (,[]) <$> (T.Pi <$> desugar'' from <*> desugar' (extend cxt) to)
       AST.Let name value body ->
-        T.Ap <$> (T.Lam <$> (T.Meta (length cxt + 1) <$> gen) <*> desugar' (name : cxt) body) <*> desugar'' value
+        (,[]) <$> (T.Ap <$> (T.Lam <$> (T.Meta (scope + 1) <$> gen) <*> desugar' (name : cxt) body) <*> desugar'' value)
       AST.Case xs cases -> do
         xs' <- forM xs desugar''
         let bounds = reverse [0 .. length xs' - 1]
-        let scopeLevel = length cxt
         y <- go bounds ((cxt,) <$> cases)
-        argTypes <- forM (zip [scopeLevel ..] xs') (T.Meta . fst >>> (<$> gen))
-        pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs')
+        argTypes <- forM (zip [scope ..] xs') (T.Meta . fst >>> (<$> gen))
+        pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs', [])
         where
-          -- pure (foldr (uncurry (flip subst)) y (zip bounds xs'))
           go :: [Int] -> [(LocalContext, AST.Case)] -> Gen Id T.Term
           go xs [(cxt, ([], body))] = desugar' cxt body
           go (x : xs) [(cxt, (Variable name : ys, body))] = go xs [(setAt x name cxt, (ys, body))]
@@ -112,18 +126,17 @@ desugarExpression gcxt = desugar'
                           _ -> error "?"
                 )
             where
-              ind =
+              ind = do
                 let headPatterns = head . fst . snd <$> branches
                     constructorPatterns = catMaybes ((\case Data name _ -> Just name; _ -> Nothing) <$> headPatterns)
-                    indNominees =
-                      traverse
-                        (\case Just (Context.DataConstructor _ type' value) -> Just value; _ -> Nothing)
-                        (flip M.lookup gcxt <$> constructorPatterns)
-                 in do
-                      undefined
-          --  FIXME:
-          -- DataConstructor ind _ : _ <- indNominees
-          -- pure ind
+                    -- FIXME:
+                    indNominees = lookupConstructor <$> constructorPatterns
+                guard (allSame indNominees)
+                pure $ head indNominees
+              lookupConstructor :: QName -> InductiveType
+              lookupConstructor qname@QName {namespace, Common.name} =
+                fromMaybe (error "") $
+                  M.lookup qname gcxt >>= (\case DataConstructor {ind} -> pure ind; _ -> Nothing)
           go x y = error (show (x, y))
           equivalent :: AST.Pattern -> AST.Pattern -> Bool
           equivalent (Data x _) (Data y _) = x == y
@@ -133,35 +146,33 @@ desugarExpression gcxt = desugar'
           equivalent Wildcard (Variable _) = True
           equivalent Wildcard Wildcard = True
           equivalent _ _ = False
-      AST.Lambda args body -> lambda cxt (toList args) body
-      AST.LambdaCase args cases -> lambda cxt args undefined
+      AST.Lambda args body -> (,[]) <$> lambda cxt (toList args) body
+      AST.LambdaCase args cases -> undefined
       AST.Infix x op y ->
-        T.Ap . T.Ap (fromJust $ lookup op) <$> desugar'' x <*> desugar'' y
+        (,[]) <$> (T.Ap . T.Ap (fst $ lookup op) <$> desugar'' x <*> desugar'' y)
       AST.Tuple xs -> do
         xs' <- forM xs desugar''
-        pure $ foldl1 (T.Ap . T.Ap pairNew) xs'
+        pure (foldl1 (T.Ap . T.Ap pairNew) xs', [])
       AST.List xs -> do
         xs' <- forM xs desugar''
-        pure $ foldr (flip T.Ap . T.Ap listCons) listNil xs'
-      AST.Type -> pure T.Type
+        pure (foldr (flip T.Ap . T.Ap listCons) listNil xs', [])
+      AST.Type -> pure (T.Type, [])
       AST.Literal x -> undefined
-      AST.Parenthesized x -> desugar'' x
+      AST.Parenthesized x -> desugarHead cxt x
       where
+        scope = length cxt
         desugar'' = desugar' cxt
-        lookup :: QName -> Maybe T.Term
+        lookup :: QName -> (T.Term, [(LocalName, Plicity)])
         lookup qname@QName {namespace, Common.name} =
-          ( if null namespace
-              then T.Local <$> elemIndex name cxt
-              else Nothing
-          )
-            <|> if qname `member` gcxt then Just (T.Global qname) else Nothing
-        definition :: QName -> Maybe (T.Argument, T.Term)
-        definition qname@QName {namespace, Common.name} =
-          if null namespace && name `elem` cxt
-            then Nothing
-            else undefined
-    -- )
-    --   <|> if qname `member` gcxt then Just (T.Global qname, T.Global qname) else Nothing
+          fromMaybe (error "") $
+            ( if null namespace
+                then (,[]) . T.Local <$> elemIndex name cxt
+                else Nothing
+            )
+              <|> ( (T.Global qname,)
+                      . Context.args
+                      <$> M.lookup qname gcxt
+                  )
     lambda :: LocalContext -> [AST.Argument] -> AST.Expression -> (Gen Id) T.Term
     lambda cxt xs body = do
       (args, context) <- desugarArguments gcxt cxt xs
@@ -176,11 +187,14 @@ desugarArguments gcxt = go
     go cxt [] = pure ([], [])
     go cxt ((names, type', _) : xs) = do
       type'' <- maybe (T.Meta (length cxt) <$> gen) (desugarExpression gcxt cxt) type'
-      (args, context) <- go (toList names <> cxt) xs
-      let bindName :: LocalName -> T.Argument
-          bindName ('\'' : name) = T.Argument name type'' T.Implicit
-          bindName name = T.Argument name type'' T.Explicit
+      let args' = bindName type'' <$> names
+          names' = toList (T.name <$> args')
+      (args, context) <- go (names' <> cxt) xs
       pure
-        ( toList (bindName <$> names) <> args,
-          context <> reverse (toList names)
+        ( toList args' <> args,
+          context <> reverse names'
         )
+      where
+        bindName :: T.Term -> LocalName -> T.Argument
+        bindName type' ('\'' : name) = T.Argument name type' T.Implicit
+        bindName type' name = T.Argument name type' T.Explicit

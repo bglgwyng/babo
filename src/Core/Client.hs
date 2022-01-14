@@ -23,7 +23,7 @@ import Data.Set (fromList)
 import qualified Data.Set as S
 
 typeOf :: Level -> Context -> M.Map Id Term -> M.Map Id Term -> Term -> UnifyM (Term, S.Set Constraint)
-typeOf level gcxt@Context {globals} mcxt cxt t = 
+typeOf level gcxt@Context {globals} mcxt cxt t =
   case t of
     Local i -> mzero
     Free _ i -> foldMap (pure . (,S.empty)) $ M.lookup i cxt
@@ -37,13 +37,12 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
     Ap l r -> do
       (lType, cs) <- typeOf' mcxt cxt l
       case lType of
-        Pi from to ->
-          typeOf' mcxt cxt r
-            <&> ( (subst r 0 to,)
-                    . (cs <>)
-                    . (uncurry (<>) . first (S.singleton . (from,,level)))
-                )
-        _ -> error $ "typeOf:" <> show (l) <> " not a Pi"
+        Pi from to -> 
+          (subst r 0 to,)
+            . (cs <>)
+            . foldMap (uncurry (<>) . first (S.singleton . (,from,level)))
+            <$> optional (typeOf' mcxt cxt r)
+        _ -> error $ "typeOf:" <> show l <> " not a Pi"
     Lam arg b -> do
       v <- lift gen
       (toType, cs) <-
@@ -113,6 +112,6 @@ infer :: GlobalContext -> M.Map Id Term -> Term -> Term -> UnifyM (Term, Term, S
 infer gcxt cxt t1 t2 = go
   where
     go = do
-      (tp, cs) <- typeOf 0 Context {metas = M.empty, globals=gcxt} M.empty cxt t1
-      (subst, flexflex) <- unify Context {metas = M.empty, globals=gcxt} (cs <> S.singleton (tp, t2, 0))
+      (tp, cs) <- typeOf 0 Context {metas = M.empty, globals = gcxt} M.empty cxt t1
+      (subst, flexflex) <- unify Context {metas = M.empty, globals = gcxt} (cs <> S.singleton (tp, t2, 0))
       pure (manySubst subst t1, manySubst subst tp, subst, flexflex)
