@@ -93,7 +93,7 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
           ( ( \(name, (args, type')) ->
                 ( QName namespace name,
                   DataConstructor
-                    { args = fst $ unzipArgs args,
+                    { args = (second (const T.Implicit) <$> paramBinds) <> fst (unzipArgs args),
                       type',
                       ind
                     }
