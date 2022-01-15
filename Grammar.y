@@ -183,7 +183,7 @@ BinaryExpression :: { Expression }
 
 Juxtaposition :: { Expression }
           : Juxtaposition Atom                      { Application $1 ((Nothing, $2) :| []) }
-          | Juxtaposition '(' LocalName '=' Atom ')'                      { Application $1 ((Just $3, $5) :| []) }
+          | Juxtaposition '(' LocalName '=' Expression ')'                      { Application $1 ((Just $3, $5) :| []) }
           | Atom                           { $1 }
 
 Atom :: { Expression }
