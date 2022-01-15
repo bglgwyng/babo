@@ -37,6 +37,7 @@ data Expression
   | List [Expression]
   | Literal Literal
   | Parenthesized Expression
+  | Meta
 
 -- TODO: Better name
 data ImportRule

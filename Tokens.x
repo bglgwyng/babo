@@ -35,6 +35,7 @@ tokens :-
   @string_literal               { \s -> TokenString (tail $ init s) }
   \=                            { \s -> TokenEq }
   "->"                          { \s -> TokenArrow }
+  "?"                           { \s -> TokenQuestionMark }
   \(                            { \s -> TokenLParen }
   \)                            { \s -> TokenRParen }
   \{                            { \s -> TokenLBrace }
@@ -76,6 +77,7 @@ data Token = TokenDatatype
            | TokenUSymQ ([String], String)
            | TokenEq
            | TokenArrow
+           | TokenQuestionMark
            | TokenForAll
            | TokenLParen
            | TokenRParen

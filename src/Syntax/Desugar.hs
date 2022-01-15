@@ -77,6 +77,7 @@ desugarExpression gcxt = desugar'
           apply ((Nothing, x) : xs) ((_, T.Explicit) : args) = (first . (:) <$> desugar'' x) <*> apply xs args
           apply xs ((_, T.Implicit) : args) = (first . (:) . T.Meta scope <$> gen) <*> apply xs args
       AST.Identifier x -> pure (lookup x)
+      AST.Meta -> ((,[]) . T.Meta scope <$> gen)
       AST.ForAll xs from to ->
         (,[]) <$> forall cxt (toList xs)
         where
