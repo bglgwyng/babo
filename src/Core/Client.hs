@@ -27,7 +27,8 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
   case t of
     Local i -> mzero
     Free _ i -> foldMap (pure . (,S.empty)) $ M.lookup i cxt
-    Meta _ i -> mzero
+    -- NOTE: really?
+    Meta _ i -> maybe (lift $ (,S.empty) . T.Meta level <$> gen) (pure . (,S.empty)) $ M.lookup i mcxt
     Global i ->
       maybe
         undefined
@@ -37,11 +38,11 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
     Ap l r -> do
       (lType, cs) <- typeOf' mcxt cxt l
       case lType of
-        Pi from to -> 
+        Pi from to ->
           (subst r 0 to,)
             . (cs <>)
-            . foldMap (uncurry (<>) . first (S.singleton . (,from,level)))
-            <$> optional (typeOf' mcxt cxt r)
+            . (uncurry (<>) . first (S.singleton . (,from,level)))
+            <$> typeOf' mcxt cxt r
         _ -> error $ "typeOf:" <> show l <> " not a Pi"
     Lam arg b -> do
       v <- lift gen

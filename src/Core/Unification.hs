@@ -19,20 +19,22 @@ module Core.Unification
 where
 
 import Common
+import Context (GlobalContext, Inhabitant (..))
 import Control.Monad
 import Control.Monad.Gen
 import Control.Monad.Logic
 import Control.Monad.Trans
 import Core.Term
-    ( InductiveType(..),
-      Term(..),
-      Pattern(..) )
+  ( InductiveType (..),
+    Pattern (..),
+    Term (..),
+  )
 import Data.Foldable
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Monoid hiding (Ap)
 import qualified Data.Set as S
-import Context (GlobalContext, Inhabitant (..))
+import Debug.Trace (traceShowM)
 
 --------------------------------------------------
 ------------------ the language ------------------
@@ -129,12 +131,14 @@ reduce cxt@Context {globals} = \case
     l' -> Ap l' (reduce' r)
   Lam arg body -> Lam (reduce' arg) (reduce' body)
   Pi arg body -> Pi (reduce' arg) (reduce' body)
-  x@(Global qname) -> maybe
-    (error "reduce: Global")
-    (\case
-        Definition {value} -> reduce' value
-        _ -> x) $
-      M.lookup qname globals
+  x@(Global qname) ->
+    maybe
+      (error "reduce: Global")
+      ( \case
+          Definition {value} -> reduce' value
+          _ -> x
+      )
+      $ M.lookup qname globals
   x -> x
   where
     reduce' = reduce cxt
@@ -199,11 +203,12 @@ simplify cxt@Context {globals} (t1, t2, level)
       else mzero
   where
     irreducible (Free _ _) = True
+    irreducible Type = True
     irreducible (Global qname) =
       case M.lookup qname globals of
         Just Definition {} -> False
         Just _ -> True
-        Nothing -> undefined 
+        Nothing -> undefined
     irreducible _ = False
     simplify' = simplify cxt
 
