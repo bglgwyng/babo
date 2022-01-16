@@ -34,7 +34,6 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Monoid hiding (Ap)
 import qualified Data.Set as S
-import Debug.Trace (traceShowM)
 
 --------------------------------------------------
 ------------------ the language ------------------

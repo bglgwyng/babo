@@ -1,0 +1,15 @@
+data Bool {
+  True;
+  False;
+}
+
+data List(a: Type) {
+  Nil;
+  Cons(x: a, xs: List a);
+}
+
+-- data Equal('a: Type, x) {
+--   Refl;
+-- }
+
+-- def id(a: Type, x: a): a = x

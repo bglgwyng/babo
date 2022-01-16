@@ -19,6 +19,9 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
     data { TokenDatatype }
     decl { TokenDeclare }
     def { TokenDefine }
+    check { TokenCheck }
+    eval { TokenEval }
+    typeOf { TokenTypeOf }
     type { TokenType }
     let { TokenLet }
     case { TokenCase }
@@ -55,8 +58,8 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
 %%
     
 Statements :: { Source }
-          : Statement            { Source [$1] }
-          | Statement Statements { Source ($1 : statements $2) }
+          : Statement                 { Source [$1] }
+          | Statement Statements      { Source ($1 : statements $2) }
 
 Name :: { String }
           : usym { $1 }
@@ -68,6 +71,11 @@ Statement :: { TopLevelStatement }
           | decl Name Arguments ':' Expression                  { Declaration $2 $3 $5 [] }
           | def Name Arguments '=' Expression                   { Definition $2 $3 Nothing $5 [] }
           | def Name Arguments ':' Expression '=' Expression    { Definition $2 $3 (Just $5) $7 [] }
+          | eval Expression                                     { Eval $2 }
+          | typeOf Expression                                   { TypeOf $2 }
+          | check Expression '=' Expression                     { CheckUnify $2 $4 }
+          | check Expression ':' Expression                     { CheckTypeOf $2 $4 }
+          
 
 Variant :: { Variant }
           : usym Arguments                { Variant [] $1 $2 Nothing }

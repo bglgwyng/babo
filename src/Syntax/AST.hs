@@ -80,11 +80,9 @@ data TopLevelStatement
         rule :: ImportRule,
         annotations :: [Annotation]
       }
+  | Eval Expression
+  | TypeOf Expression
+  | CheckUnify Expression Expression
+  | CheckTypeOf Expression Expression
 
 newtype Source = Source {statements :: [TopLevelStatement]}
-
-instance IsLabel "name" (Variant -> String) where
-  fromLabel = name
-
-instance IsLabel "name" (TopLevelStatement -> String) where
-  fromLabel = name

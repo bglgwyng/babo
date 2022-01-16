@@ -26,7 +26,10 @@ tokens :-
   def                           { \s -> TokenDefine }
   let                           { \s -> TokenLet }
   case                          { \s -> TokenCase }
-  forall                        { \s -> TokenForAll } 
+  forall                        { \s -> TokenForAll }
+  "%check"                      { \s -> TokenCheck }
+  "%eval"                       { \s -> TokenEval }
+  "%typeof"                     { \s -> TokenTypeOf } 
   Type                          { \s -> TokenType } 
   $digit+                       { \s -> TokenInt (True, s) }
   \- $digit+                    { \s -> TokenInt (False, s) }
@@ -64,6 +67,9 @@ qualified x = (init xs, last xs)
 data Token = TokenDatatype
            | TokenDeclare
            | TokenDefine
+           | TokenCheck
+           | TokenEval
+           | TokenTypeOf
            | TokenLet
            | TokenCase
            | TokenInt (Bool, String)

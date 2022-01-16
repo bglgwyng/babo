@@ -27,6 +27,7 @@ import qualified Syntax.Pattern as P
 
 tabSize = 2
 
+indent' :: Doc ann -> Doc ann
 indent' = indent tabSize
 
 commaSeparated = sep . punctuate (pretty ",")
@@ -63,6 +64,7 @@ instance Pretty Expression where
       prettyDisk (Nothing, x) = pretty x
       prettyDisk (Just x, y) = pretty '(' <> pretty x <+> pretty "=" <+> pretty y <> pretty ')'
   pretty (Arrow x y) = sep [pretty x, pretty "->" <+> pretty y]
+  pretty Meta = pretty "?"
   pretty (Let name value body) =
     vsep
       [ pretty "let" <+> pretty name <+> pretty "=" <+> pretty value <> pretty ",",
@@ -161,6 +163,7 @@ instance Pretty TopLevelStatement where
             <+> align (pretty type')
         )
   pretty Import {url, rule, annotations} = pretty "import" <+> pretty url
+  pretty _ = pretty ""
 
 instance Pretty Literal where
   pretty UnitLiteral = pretty "()"
@@ -174,7 +177,7 @@ instance Pretty Literal where
         _ -> pretty "." <> pretty fractional
 
 instance Pretty Source where
-  pretty (Source decls) = vsep $ decls <&> pretty
+  pretty (Source decls) = vsep $ pretty <$> decls
 
 instance Show Expression where
   show = renderString . layoutPretty defaultLayoutOptions . pretty

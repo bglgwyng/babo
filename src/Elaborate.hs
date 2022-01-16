@@ -1,27 +1,32 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Elaborate where
 
 import Common (Id, Level, LocalName, QName (QName, name))
-import Context (GlobalContext, Inhabitant (..))
+import Context (GlobalContext, Inhabitant (..), LocalContext)
 import qualified Context
 import Control.Arrow ((&&&), (>>>))
 import Control.Monad (foldM)
-import Control.Monad.Gen (Gen, MonadGen (gen), runGen)
+import Control.Monad.Gen (Gen, GenT, MonadGen (gen), runGen, runGenT)
+import Control.Monad.Identity (Identity (Identity), IdentityT (runIdentityT), runIdentity)
+import Control.Monad.Logic
 import Control.Monad.Trans (lift)
 import Core.Client (infer)
 import qualified Core.Term as T
-import Core.Unification (UnifyM, manySubst, runUnifyM, subst, substFV)
+import Core.Unification (Context (..), UnifyM, manySubst, reduce, runUnifyM, subst, substFV, unify)
 import Data.Bifunctor
 import Data.Functor
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (fromList, singleton)
 import qualified Data.Map as M
 import Data.Maybe (listToMaybe)
+import qualified Data.Set as S
 import Data.Traversable (forM)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
+import Debug.Trace (traceM)
 import Syntax.AST
 import qualified Syntax.AST as AST
 import Syntax.Desugar (desugarArguments, desugarExpression)
@@ -134,7 +139,31 @@ elaborate' gcxt AST.Definition {name, args, maybeType, value} = do
             }
         )
     )
-elaborate' cxt AST.Import {} = undefined
+elaborate' gcxt (Eval x) = do
+  meta <- lift $ T.Meta 0 <$> gen
+  value <- lift $ desugarExpression gcxt mempty x
+  (value', _, _, _) <- infer gcxt mempty value meta
+  traceM ("%eval " <> show value <> " = " <> show (reduce Context {globals = gcxt} value'))
+  pure mempty
+elaborate' gcxt (TypeOf x) = do
+  meta <- lift $ T.Meta 0 <$> gen
+  value <- lift $ desugarExpression gcxt mempty x
+  (_, type', _, _) <- infer gcxt mempty value meta
+  traceM ("%check " <> show value <> " : " <> show type')
+  pure mempty
+elaborate' gcxt (CheckUnify x y) = do
+  x <- lift $ desugarExpression gcxt mempty x
+  y <- lift $ desugarExpression gcxt mempty y
+  (subst, _) <- unify (Context {metas = mempty}) $ S.singleton (x, y, 0)
+  traceM ("%check " <> show x <> " = " <> show y)
+  pure mempty
+elaborate' gcxt (CheckTypeOf value type') = do
+  value <- lift $ desugarExpression gcxt mempty value
+  type' <- lift $ desugarExpression gcxt mempty type'
+  (_, _, subst, _) <- infer gcxt mempty value type'
+  traceM ("%check " <> show value <> " : " <> show type')
+  pure mempty
+elaborate' gcxt _ = pure mempty
 
 unzipArgs :: [T.Argument] -> ([(LocalName, T.Plicity)], [T.Term])
 unzipArgs args = unzip $ (\(T.Argument name type' plicity) -> ((name, plicity), type')) <$> args
