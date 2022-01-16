@@ -5,7 +5,6 @@ import Context (GlobalContext, Inhabitant (..), LocalContext)
 import qualified Context
 import Control.Arrow ((&&&), (>>>))
 import Control.Monad (foldM)
-import Control.Monad.Gen (Gen, GenT, MonadGen (gen), runGen, runGenT)
 import Control.Monad.Identity (Identity (Identity), IdentityT (runIdentityT), runIdentity)
 import Control.Monad.Logic
 import Control.Monad.Trans (lift)
@@ -23,6 +22,8 @@ import Data.Traversable (forM)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
 import Debug.Trace (traceM)
+import Effect.Gen (gen)
+import Polysemy (Member, Members, Sem, run)
 import Syntax.AST
 import qualified Syntax.AST as AST
 import Syntax.Desugar (desugarArguments, desugarExpression)
@@ -34,14 +35,14 @@ import qualified Syntax.Desugar as D
 --     bar (DataConstructor args _ ind) = (args, Just ind)
 --     bar x = (args x, Nothing)
 
-elaborate' :: GlobalContext -> AST.TopLevelStatement -> UnifyM GlobalContext
+elaborate' :: Members UnifyM r => GlobalContext -> AST.TopLevelStatement -> Sem r GlobalContext
 elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
   do
-    (params', cxt') <- lift $ desugarArguments cxt [] params
+    (params', cxt') <- desugarArguments cxt [] params
     let paramsArity = length params'
         (paramBinds, paramTypes) = unzipArgs params'
-    type' <- lift $ foldr T.Pi `flip` paramTypes <$> maybe (pure T.Type) (desugarExpression cxt []) maybeType
-    v <- lift gen
+    type' <- foldr T.Pi `flip` paramTypes <$> maybe (pure T.Type) (desugarExpression cxt []) maybeType
+    v <- gen
     -- FIXME:
     let namespace = []
         typeName = QName namespace name
@@ -61,7 +62,7 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
       forM
         variants
         ( \Variant {name, args} -> do
-            (args', cxt') <- lift $ desugarArguments (cxt <> typeDefinition) (fst <$> paramBinds) args
+            (args', cxt') <- desugarArguments (cxt <> typeDefinition) (fst <$> paramBinds) args
             let (argBinds, argTypes) = unzipArgs args'
             pure
               ( name,
@@ -104,10 +105,10 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
           )
         )
 elaborate' gcxt AST.Declaration {name, args, type'} = do
-  (args', cxt') <- lift $ desugarArguments gcxt [] args
+  (args', cxt') <- desugarArguments gcxt [] args
   -- FIXME:
   let (argBinds, argTypes) = unzipArgs args'
-  type' <- lift $ foldr T.Pi `flip` argTypes <$> desugarExpression gcxt cxt' type'
+  type' <- foldr T.Pi `flip` argTypes <$> desugarExpression gcxt cxt' type'
   (type', _, _, _) <- infer gcxt mempty type' T.Type
   pure
     ( M.singleton
@@ -119,11 +120,11 @@ elaborate' gcxt AST.Declaration {name, args, type'} = do
         )
     )
 elaborate' gcxt AST.Definition {name, args, maybeType, value} = do
-  (args', cxt') <- lift $ desugarArguments gcxt [] args
+  (args', cxt') <- desugarArguments gcxt [] args
   -- FIXME:
   let (argBinds, argTypes) = unzipArgs args'
-  type' <- foldr T.Pi `flip` argTypes <$> lift (maybe (T.Meta (length argTypes) <$> gen) (desugarExpression gcxt cxt') maybeType)
-  value' <- foldr T.Lam `flip` argTypes <$> lift (desugarExpression gcxt cxt' value)
+  type' <- foldr T.Pi `flip` argTypes <$> (maybe (T.Meta (length argTypes) <$> gen) (desugarExpression gcxt cxt') maybeType)
+  value' <- foldr T.Lam `flip` argTypes <$> (desugarExpression gcxt cxt' value)
   (value', type', _, _) <- infer gcxt mempty value' type'
   pure
     ( M.singleton
@@ -136,26 +137,26 @@ elaborate' gcxt AST.Definition {name, args, maybeType, value} = do
         )
     )
 elaborate' gcxt (Eval x) = do
-  meta <- lift $ T.Meta 0 <$> gen
-  value <- lift $ desugarExpression gcxt mempty x
+  meta <- T.Meta 0 <$> gen
+  value <- desugarExpression gcxt mempty x
   (value', _, _, _) <- infer gcxt mempty value meta
   traceM ("%eval " <> show value <> " = " <> show (reduce Context {globals = gcxt} value'))
   pure mempty
 elaborate' gcxt (TypeOf x) = do
-  meta <- lift $ T.Meta 0 <$> gen
-  value <- lift $ desugarExpression gcxt mempty x
+  meta <- T.Meta 0 <$> gen
+  value <- desugarExpression gcxt mempty x
   (_, type', _, _) <- infer gcxt mempty value meta
   traceM ("%check " <> show value <> " : " <> show type')
   pure mempty
 elaborate' gcxt (CheckUnify x y) = do
-  x <- lift $ desugarExpression gcxt mempty x
-  y <- lift $ desugarExpression gcxt mempty y
+  x <- desugarExpression gcxt mempty x
+  y <- desugarExpression gcxt mempty y
   (subst, _) <- unify (Context {metas = mempty}) $ S.singleton (x, y, 0)
   traceM ("%check " <> show x <> " = " <> show y)
   pure mempty
 elaborate' gcxt (CheckTypeOf value type') = do
-  value <- lift $ desugarExpression gcxt mempty value
-  type' <- lift $ desugarExpression gcxt mempty type'
+  value <- desugarExpression gcxt mempty value
+  type' <- desugarExpression gcxt mempty type'
   (_, _, subst, _) <- infer gcxt mempty value type'
   traceM ("%check " <> show value <> " : " <> show type')
   pure mempty
@@ -169,7 +170,7 @@ elaborate (AST.Source xs) =
   foldM
     ( \xs y ->
         do
-          ys <- listToMaybe . runUnifyM $ elaborate' xs y
+          ys <- listToMaybe . run . runUnifyM $ elaborate' xs y
           pure $ xs <> ys
     )
     mempty

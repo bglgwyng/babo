@@ -20,8 +20,9 @@ where
 
 import Common
 import Context (GlobalContext, Inhabitant (..))
+import Control.Applicative ((<|>))
 import Control.Monad
-import Control.Monad.Gen
+import Control.Monad.Identity (Identity (runIdentity))
 import Control.Monad.Logic
 import Control.Monad.Trans
 import Core.Term
@@ -34,6 +35,10 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Monoid hiding (Ap)
 import qualified Data.Set as S
+import Effect.Gen (Gen, gen, runGen)
+import Polysemy (Embed, Member, Members, Sem, embed, runM)
+import Polysemy.Embed (runEmbedded)
+import Polysemy.NonDet (NonDet, runNonDet)
 
 --------------------------------------------------
 ------------------ the language ------------------
@@ -163,14 +168,14 @@ applyApTelescope = foldl' Ap
 -------------- the actual unification code ----------------------
 -----------------------------------------------------------------
 
-type UnifyM = LogicT (Gen Id)
+type UnifyM = '[NonDet, Gen]
 
 type Constraint = (Term, Term, Level)
 
 -- | Given a constraint, produce a collection of equivalent but
 -- simpler constraints. Any solution for the returned set of
 -- constraints should be a solution for the original constraint.
-simplify :: Context -> Constraint -> UnifyM (S.Set Constraint)
+simplify :: Members UnifyM r => Context -> Constraint -> Sem r (S.Set Constraint)
 simplify cxt@Context {globals} (t1, t2, level)
   | t1 == t2 && S.null (metavars t1) = pure S.empty
   | reduce cxt t1 /= t1 = simplify' (reduce cxt t1, t2, level)
@@ -178,11 +183,12 @@ simplify cxt@Context {globals} (t1, t2, level)
   | (x, cxt) <- peelApTelescope t1,
     (y, cxt') <- peelApTelescope t2,
     irreducible x && irreducible y = do
-    guard (x == y && length cxt == length cxt')
-    fold <$> mapM simplify' (zipWith (,,level) cxt cxt')
+    if x == y && length cxt == length cxt'
+      then mzero
+      else fold <$> mapM simplify' (zipWith (,,level) cxt cxt')
   | Lam arg1 body1 <- t1,
     Lam arg2 body2 <- t2 = do
-    v <- Free level <$> lift gen
+    v <- Free level <$> gen
     pure $
       S.fromList
         [ (subst v 0 body1, subst v 0 body2, level + 1),
@@ -190,7 +196,7 @@ simplify cxt@Context {globals} (t1, t2, level)
         ]
   | Pi arg1 body1 <- t1,
     Pi arg2 body2 <- t2 = do
-    v <- Free level <$> lift gen
+    v <- Free level <$> gen
     pure $
       S.fromList
         [ (subst v 0 body1, subst v 0 body2, level + 1),
@@ -215,7 +221,7 @@ type Subst = M.Map Id Term
 
 -- | Generate all possible solutions to flex-rigid equations as an
 -- infinite list of computations producing finite lists.
-tryFlexRigid :: Constraint -> [UnifyM [Subst]]
+tryFlexRigid :: Members UnifyM r => Constraint -> [Sem r [Subst]]
 tryFlexRigid (t1, t2, _)
   | Meta level i <- t1,
     (stuckTerm, cxt2) <- peelApTelescope t2,
@@ -229,7 +235,7 @@ tryFlexRigid (t1, t2, _)
   | otherwise = []
 
 -- | The reflexive transitive closure of @simplify@
-repeatedlySimplify :: Context -> S.Set Constraint -> UnifyM (S.Set Constraint)
+repeatedlySimplify :: Members UnifyM r => Context -> S.Set Constraint -> Sem r (S.Set Constraint)
 repeatedlySimplify cxt cs = do
   cs' <- fold <$> traverse (simplify cxt) (S.toList cs)
   if cs' == cs then pure cs else repeatedlySimplify cxt cs'
@@ -246,7 +252,10 @@ s1 <+> s2 = M.union (manySubst s1 <$> s2) s1
 -- flex-flex equations.
 data Context = Context {metas :: Subst, globals :: GlobalContext} deriving (Show)
 
-unify :: Context -> S.Set Constraint -> UnifyM (Subst, S.Set Constraint)
+logicZero :: Member (Embed Logic) r => Sem r a
+logicZero = embed (mzero :: Logic a)
+
+unify :: Members UnifyM r => Context -> S.Set Constraint -> Sem r (Subst, S.Set Constraint)
 unify cxt@Context {metas = s} cs = do
   let cs' = applySubst s cs
   cs'' <- repeatedlySimplify cxt cs'
@@ -259,17 +268,21 @@ unify cxt@Context {metas = s} cs = do
   where
     applySubst s = S.map (\(t1, t2, level) -> (manySubst s t1, manySubst s t2, level))
     flexflex (t1, t2, _) = isStuck t1 && isStuck t2
+    trySubsts :: Members UnifyM r => [Sem r [Subst]] -> S.Set Constraint -> Sem r (Subst, S.Set Constraint)
     trySubsts [] cs = mzero
     trySubsts (mss : psubsts) cs = do
       ss <- mss
       let these = foldr interleave mzero [unify cxt {metas = newS <+> s} cs | newS <- ss]
       let those = trySubsts psubsts cs
       these `interleave` those
+    interleave :: Member NonDet r => Sem r a -> Sem r a -> Sem r a
+    interleave = (<|>)
 
-runUnifyM :: UnifyM a -> [a]
-runUnifyM = runGenFrom 100 . observeAllT
+-- runUnifyM :: Sem '[Gen, NonDet] a -> [a]
+runUnifyM :: Sem (Gen : NonDet : r) a -> Sem r [a]
+runUnifyM = runNonDet . runGen
 
 -- | Solve a constraint and return the remaining flex-flex constraints
 -- and the substitution for it.
-driver :: Constraint -> Maybe (Subst, S.Set Constraint)
-driver = listToMaybe . runUnifyM . unify Context {metas = M.empty} . S.singleton
+driver :: Constraint -> Sem r (Maybe (Subst, S.Set Constraint))
+driver = (listToMaybe <$>) . runUnifyM . unify Context {metas = M.empty} . S.singleton

@@ -5,7 +5,7 @@ import Context
 import Control.Applicative
 import Control.Arrow (Arrow (first, second, (&&&)), (***), (>>>))
 import Control.Monad
-import Control.Monad.Gen
+import Control.Monad.Logic (Logic)
 import Control.Monad.Trans
 import Core.Term (InductiveType (..))
 import qualified Core.Term as T
@@ -21,14 +21,19 @@ import Data.Maybe
 import Data.Monoid hiding (Ap)
 import Data.Set (fromList)
 import qualified Data.Set as S
+import Effect.Gen (gen)
+import Polysemy (Embed, Member, Members, Sem, embed)
 
-typeOf :: Level -> Context -> M.Map Id Term -> M.Map Id Term -> Term -> UnifyM (Term, S.Set Constraint)
+logicZero :: Member (Embed Logic) r => Sem r a
+logicZero = embed (mzero :: Logic a)
+
+typeOf :: Members UnifyM r => Level -> Context -> M.Map Id Term -> M.Map Id Term -> Term -> Sem r (Term, S.Set Constraint)
 typeOf level gcxt@Context {globals} mcxt cxt t =
   case t of
     Local i -> mzero
-    Free _ i -> foldMap (pure . (,S.empty)) $ M.lookup i cxt
+    Free _ i -> maybe mzero (pure . (,S.empty)) $ M.lookup i cxt
     -- NOTE: really?
-    Meta _ i -> maybe (lift $ (,S.empty) . T.Meta level <$> gen) (pure . (,S.empty)) $ M.lookup i mcxt
+    Meta _ i -> maybe ((,S.empty) . T.Meta level <$> gen) (pure . (,S.empty)) $ M.lookup i mcxt
     Global i ->
       maybe
         undefined
@@ -45,7 +50,7 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
             <$> typeOf' mcxt cxt r
         _ -> error $ "typeOf:" <> show l <> " not a Pi"
     Lam arg b -> do
-      v <- lift gen
+      v <- gen
       (toType, cs) <-
         typeOf
           (level + 1)
@@ -56,10 +61,10 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
       pure
         (Pi arg (substFV (Local 0) v (raise 1 toType)), cs)
     Pi from to -> do
-      v <- lift gen
+      v <- gen
       cs <-
         (uncurry (<>) . first (S.singleton . (Type,,level)) <$> typeOf' mcxt cxt from)
-          <|> pure mempty
+          <|> mzero
       (toType, toCs) <- typeOf (level + 1) gcxt mcxt (M.insert v from cxt) (subst (Free level v) 0 to)
       pure
         ( Type,
@@ -78,8 +83,8 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
           | otherwise ->
             error (show indName <> " != " <> show name)
         _ -> do
-          paramMetas <- forM params (const $ T.Meta level <$> lift gen)
-          indexMetas <- forM indices (const $ T.Meta level <$> lift gen)
+          paramMetas <- forM params (const $ T.Meta level <$> gen)
+          indexMetas <- forM indices (const $ T.Meta level <$> gen)
           let spine = paramMetas <> indexMetas
           pure (spine, S.singleton (xType, applyApTelescope (Global indName) spine))
       (toTypes, cs') <-
@@ -94,7 +99,7 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
                     (zip [0 ..] args)
                     ( \(i, T.Argument _ argType _) ->
                         (,foldr (uncurry subst) argType (second (+ i) <$> params'))
-                          <$> lift gen
+                          <$> gen
                     )
                 let body' =
                       foldr
@@ -109,7 +114,7 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
   where
     typeOf' = typeOf level gcxt
 
-infer :: GlobalContext -> M.Map Id Term -> Term -> Term -> UnifyM (Term, Term, Subst, S.Set Constraint)
+infer :: Members UnifyM r => GlobalContext -> M.Map Id Term -> Term -> Term -> Sem r (Term, Term, Subst, S.Set Constraint)
 infer gcxt cxt t1 t2 = go
   where
     go = do

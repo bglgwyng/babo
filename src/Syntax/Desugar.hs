@@ -6,7 +6,6 @@ import Control.Applicative
 import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
 import Control.Monad (foldM, forM, guard, unless, (>=>))
 import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), MonadTrans (lift), cont, runCont)
-import Control.Monad.Gen (Gen, GenT, gen)
 import Control.Monad.Writer (MonadWriter (tell), WriterT)
 import Core.Term (InductiveType (..), Plicity (..), Term (..))
 import qualified Core.Term as T
@@ -24,6 +23,8 @@ import Data.List.NonEmpty.Extra (groupWith)
 import Data.Map as M (Map, delete, fromList, lookup, member, singleton)
 import Data.Maybe (catMaybes, fromJust, fromMaybe, isNothing)
 import Data.Tuple.Extra (dupe, firstM)
+import Effect.Gen (Gen, gen)
+import Polysemy (Member, Sem)
 import Syntax.AST (TopLevelStatement (..))
 import qualified Syntax.AST as AST
 import Syntax.Literal
@@ -51,23 +52,22 @@ data Match = Constructor QName | Literal Literal | Self
 
 -- type GlobalContext = Map QName ([(LocalName, Plicity)], Maybe InductiveType)
 
-desugarExpression :: GlobalContext -> LocalContext -> AST.Expression -> Gen Id T.Term
+desugarExpression :: Member Gen r => GlobalContext -> LocalContext -> AST.Expression -> Sem r T.Term
 desugarExpression gcxt = desugar'
   where
-    desugar' :: LocalContext -> AST.Expression -> Gen Id T.Term
+    desugar' :: Member Gen r => LocalContext -> AST.Expression -> Sem r T.Term
     desugar' cxt x = fst <$> desugarHead cxt x
-    desugarHead :: LocalContext -> AST.Expression -> Gen Id (T.Term, [(LocalName, Plicity)])
+    desugarHead :: Member Gen r => LocalContext -> AST.Expression -> Sem r (T.Term, [(LocalName, Plicity)])
     desugarHead cxt = \case
       AST.Application head spine -> do
         (head', args) <- desugarHead cxt head
         (spine, args') <- apply (toList spine) args
         pure (foldl T.Ap head' spine, args')
         where
-          apply :: [AST.Disk] -> [(LocalName, Plicity)] -> Gen Id ([T.Term], [(LocalName, Plicity)])
+          apply :: Member Gen r => [AST.Disk] -> [(LocalName, Plicity)] -> Sem r ([T.Term], [(LocalName, Plicity)])
           apply [] args = pure ([], args)
           apply xs []
-            | all (isNothing . fst) xs =
-              (,[]) <$> forM xs (desugar'' . snd)
+            | all (isNothing . fst) xs = (,[]) <$> forM xs (desugar'' . snd)
             | otherwise = error "?"
           apply xs'@((Just name, x) : xs) ((arg, _) : args)
             | name == arg = (first . (:) <$> desugar'' x) <*> apply xs args
@@ -79,7 +79,7 @@ desugarExpression gcxt = desugar'
       AST.ForAll xs from to ->
         (,[]) <$> forall cxt (toList xs)
         where
-          forall :: LocalContext -> [LocalName] -> Gen Id T.Term
+          forall :: Member Gen r => LocalContext -> [LocalName] -> Sem r T.Term
           forall _ [] = desugar' (toList xs <> cxt) to
           forall cxt (x : xs) =
             T.Pi <$> desugar'' from <*> forall (extend cxt) xs
@@ -94,7 +94,7 @@ desugarExpression gcxt = desugar'
         argTypes <- forM (zip [scope ..] xs') (T.Meta . fst >>> (<$> gen))
         pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs', [])
         where
-          go :: [Int] -> [(LocalContext, AST.Case)] -> Gen Id T.Term
+          go :: Member Gen r => [Int] -> [(LocalContext, AST.Case)] -> Sem r T.Term
           go xs [(cxt, ([], body))] = desugar' cxt body
           go (x : xs) [(cxt, (Variable name : ys, body))] = go xs [(setAt x name cxt, (ys, body))]
           go (x : xs) branches =
@@ -160,6 +160,7 @@ desugarExpression gcxt = desugar'
       AST.Parenthesized x -> desugarHead cxt x
       where
         scope = length cxt
+        desugar'' :: Member Gen r => AST.Expression -> Sem r Term
         desugar'' = desugar' cxt
         lookup :: QName -> (T.Term, [(LocalName, Plicity)])
         lookup qname@QName {namespace, Common.name} =
@@ -172,17 +173,17 @@ desugarExpression gcxt = desugar'
                       . Context.args
                       <$> M.lookup qname gcxt
                   )
-    lambda :: LocalContext -> [AST.Argument] -> AST.Expression -> (Gen Id) T.Term
+    lambda :: Member Gen r => LocalContext -> [AST.Argument] -> AST.Expression -> Sem r T.Term
     lambda cxt xs body = do
       (args, context) <- desugarArguments gcxt cxt xs
       let argTypes = (\(T.Argument _ x _) -> x) <$> args
       body' <- desugarExpression gcxt context body
       pure $ foldr T.Lam body' argTypes
 
-desugarArguments :: GlobalContext -> LocalContext -> [AST.Argument] -> Gen Id ([T.Argument], LocalContext)
+desugarArguments :: Member Gen r => GlobalContext -> LocalContext -> [AST.Argument] -> Sem r ([T.Argument], LocalContext)
 desugarArguments gcxt = go
   where
-    go :: LocalContext -> [AST.Argument] -> (Gen Id) ([T.Argument], LocalContext)
+    go :: Member Gen r => LocalContext -> [AST.Argument] -> Sem r ([T.Argument], LocalContext)
     go cxt [] = pure ([], [])
     go cxt ((names, type', _) : xs) = do
       type'' <- maybe (T.Meta (length cxt) <$> gen) (desugarExpression gcxt cxt) type'
