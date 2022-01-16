@@ -1,7 +1,3 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Elaborate where
 
 import Common (Id, Level, LocalName, QName (QName, name))

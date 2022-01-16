@@ -7,11 +7,11 @@ import Data.Map
 
 type Argument = (NonEmpty LocalName, Maybe Term)
 
-data Inhabitant = 
-  Definition {args :: [(LocalName, Plicity)], type' :: T.Term, value :: T.Term}
-  | Declaration {args :: [(LocalName, Plicity)], type' :: T.Term }
-  | TypeConstructor {args :: [(LocalName, Plicity)], type' :: T.Term, ind :: InductiveType }
-  | DataConstructor {args :: [(LocalName, Plicity)], type' :: T.Term, ind :: InductiveType }
+data Inhabitant
+  = Definition {args :: [(LocalName, Plicity)], type' :: T.Term, value :: T.Term}
+  | Declaration {args :: [(LocalName, Plicity)], type' :: T.Term}
+  | TypeConstructor {args :: [(LocalName, Plicity)], type' :: T.Term, ind :: InductiveType}
+  | DataConstructor {args :: [(LocalName, Plicity)], type' :: T.Term, ind :: InductiveType}
   deriving (Show)
 
 -- typeOfDefinition :: Definition -> T.Term
