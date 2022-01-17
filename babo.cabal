@@ -30,6 +30,7 @@ library
       Core.Client
       Core.Term
       Core.Unification
+      Effect.ElaborationError
       Effect.Gen
       Elaborate
       Syntax.AST

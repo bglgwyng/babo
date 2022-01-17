@@ -10,20 +10,23 @@ import Control.Monad.Logic
 import Control.Monad.Trans (lift)
 import Core.Client (infer)
 import qualified Core.Term as T
-import Core.Unification (Context (..), UnifyM, manySubst, reduce, runUnifyM, subst, substFV, unify)
+import Core.Unification (Context (..), manySubst, reduce, runUnifyM, subst, substFV, unify)
+import qualified Core.Unification as U
 import Data.Bifunctor
 import Data.Foldable (Foldable (toList), fold)
 import Data.Functor
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (assocs, fromList, singleton)
 import qualified Data.Map as M
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromJust, listToMaybe)
 import qualified Data.Set as S
 import Data.Traversable (forM)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
+import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (gen)
 import Polysemy (Embed, Member, Members, Sem, embed, run)
+import Polysemy.Error (Error, throw)
 import Polysemy.Trace (Trace, trace)
 import Syntax.AST
 import qualified Syntax.AST as AST
@@ -36,7 +39,7 @@ import qualified Syntax.Desugar as D
 --     bar (DataConstructor args _ ind) = (args, Just ind)
 --     bar x = (args x, Nothing)
 
-elaborate' :: Members (Trace ': UnifyM) r => GlobalContext -> AST.TopLevelStatement -> Sem r GlobalContext
+elaborate' :: Members (Trace ': Error ElaborationError ': U.Effects) r => GlobalContext -> AST.TopLevelStatement -> Sem r GlobalContext
 elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
   do
     (params', cxt') <- desugarArguments cxt [] params
@@ -175,15 +178,13 @@ elaborate' gcxt _ = pure mempty
 unzipArgs :: [T.Argument] -> ([(LocalName, T.Plicity)], [T.Term])
 unzipArgs args = unzip $ (\(T.Argument name type' plicity) -> ((name, plicity), type')) <$> args
 
-elaborate :: Member Trace r => AST.Source -> Sem r GlobalContext
+elaborate :: Members '[Trace, Error ElaborationError] r => AST.Source -> Sem r GlobalContext
 elaborate (AST.Source xs) = do
   foldM
     ( \xs y ->
         do
           x <- (listToMaybe <$>) . runUnifyM $ elaborate' xs y
-          case x of
-            Nothing -> error "!"
-            Just x -> pure $ xs <> x
+          pure $ xs <> fromJust x
     )
     mempty
     xs

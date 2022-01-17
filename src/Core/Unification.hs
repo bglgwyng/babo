@@ -5,12 +5,12 @@ module Core.Unification
     substMV,
     manySubst,
     substFV,
-    UnifyM (..),
     Constraint (..),
     Subst (..),
     unify,
     runUnifyM,
-    driver,
+    -- driver,
+    Effects,
     Context (..),
     peelApTelescope,
     applyApTelescope,
@@ -35,9 +35,11 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Monoid hiding (Ap)
 import qualified Data.Set as S
+import Effect.ElaborationError (ElaborationError)
 import Effect.Gen (Gen, gen, runGen)
 import Polysemy (Embed, Member, Members, Sem, embed, runM)
 import Polysemy.Embed (runEmbedded)
+import Polysemy.Error (Error)
 import Polysemy.NonDet (NonDet, runNonDet)
 
 --------------------------------------------------
@@ -136,13 +138,12 @@ reduce cxt@Context {globals} = \case
   Lam arg body -> Lam (reduce' arg) (reduce' body)
   Pi arg body -> Pi (reduce' arg) (reduce' body)
   x@(Global qname) ->
-    maybe
-      (error ("reduce: Global"))
+    fromJust $
       ( \case
           Definition {value} -> reduce' value
           _ -> x
       )
-      $ M.lookup qname globals
+        <$> M.lookup qname globals
   x -> x
   where
     reduce' = reduce cxt
@@ -168,14 +169,14 @@ applyApTelescope = foldl' Ap
 -------------- the actual unification code ----------------------
 -----------------------------------------------------------------
 
-type UnifyM = '[NonDet, Gen]
+type Effects = '[NonDet, Gen, Error ElaborationError]
 
 type Constraint = (Term, Term, Level)
 
 -- | Given a constraint, produce a collection of equivalent but
 -- simpler constraints. Any solution for the returned set of
 -- constraints should be a solution for the original constraint.
-simplify :: Members UnifyM r => Context -> Constraint -> Sem r (S.Set Constraint)
+simplify :: Members Effects r => Context -> Constraint -> Sem r (S.Set Constraint)
 simplify cxt@Context {globals} (t1, t2, level)
   | t1 == t2 && S.null (metavars t1) = pure S.empty
   | reduce cxt t1 /= t1 = simplify' (reduce cxt t1, t2, level)
@@ -221,7 +222,7 @@ type Subst = M.Map Id Term
 
 -- | Generate all possible solutions to flex-rigid equations as an
 -- infinite list of computations producing finite lists.
-tryFlexRigid :: Members UnifyM r => Constraint -> [Sem r [Subst]]
+tryFlexRigid :: Members Effects r => Constraint -> [Sem r [Subst]]
 tryFlexRigid (t1, t2, _)
   | Meta level i <- t1,
     (stuckTerm, cxt2) <- peelApTelescope t2,
@@ -235,7 +236,7 @@ tryFlexRigid (t1, t2, _)
   | otherwise = []
 
 -- | The reflexive transitive closure of @simplify@
-repeatedlySimplify :: Members UnifyM r => Context -> S.Set Constraint -> Sem r (S.Set Constraint)
+repeatedlySimplify :: Members Effects r => Context -> S.Set Constraint -> Sem r (S.Set Constraint)
 repeatedlySimplify cxt cs = do
   cs' <- fold <$> traverse (simplify cxt) (S.toList cs)
   if cs' == cs then pure cs else repeatedlySimplify cxt cs'
@@ -255,7 +256,7 @@ data Context = Context {metas :: Subst, globals :: GlobalContext} deriving (Show
 logicZero :: Member (Embed Logic) r => Sem r a
 logicZero = embed (mzero :: Logic a)
 
-unify :: Members UnifyM r => Context -> S.Set Constraint -> Sem r (Subst, S.Set Constraint)
+unify :: Members Effects r => Context -> S.Set Constraint -> Sem r (Subst, S.Set Constraint)
 unify cxt@Context {metas = s} cs = do
   let cs' = applySubst s cs
   cs'' <- repeatedlySimplify cxt cs'
@@ -268,7 +269,7 @@ unify cxt@Context {metas = s} cs = do
   where
     applySubst s = S.map (\(t1, t2, level) -> (manySubst s t1, manySubst s t2, level))
     flexflex (t1, t2, _) = isStuck t1 && isStuck t2
-    trySubsts :: Members UnifyM r => [Sem r [Subst]] -> S.Set Constraint -> Sem r (Subst, S.Set Constraint)
+    trySubsts :: Members Effects r => [Sem r [Subst]] -> S.Set Constraint -> Sem r (Subst, S.Set Constraint)
     trySubsts [] cs = mzero
     trySubsts (mss : psubsts) cs = do
       ss <- mss
@@ -284,5 +285,5 @@ runUnifyM = runNonDet . runGen
 
 -- | Solve a constraint and return the remaining flex-flex constraints
 -- and the substitution for it.
-driver :: Constraint -> Sem r (Maybe (Subst, S.Set Constraint))
-driver = (listToMaybe <$>) . runUnifyM . unify Context {metas = M.empty} . S.singleton
+-- driver :: =>Constraint -> Sem r (Maybe (Subst, S.Set Constraint))
+-- driver = (listToMaybe <$>) . runUnifyM . unify Context {metas = M.empty} . S.singleton

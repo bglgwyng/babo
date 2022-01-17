@@ -10,6 +10,7 @@ import Control.Monad.Trans
 import Core.Term (InductiveType (..))
 import qualified Core.Term as T
 import Core.Unification
+import qualified Core.Unification as U
 import Data.Foldable (find)
 import Data.Function ((&))
 import Data.Functor
@@ -21,13 +22,15 @@ import Data.Maybe
 import Data.Monoid hiding (Ap)
 import Data.Set (fromList)
 import qualified Data.Set as S
+import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (gen)
 import Polysemy (Embed, Member, Members, Sem, embed)
+import Polysemy.Error (throw)
 
 logicZero :: Member (Embed Logic) r => Sem r a
 logicZero = embed (mzero :: Logic a)
 
-typeOf :: Members UnifyM r => Level -> Context -> M.Map Id Term -> M.Map Id Term -> Term -> Sem r (Term, S.Set Constraint)
+typeOf :: Members U.Effects r => Level -> Context -> M.Map Id Term -> M.Map Id Term -> Term -> Sem r (Term, S.Set Constraint)
 typeOf level gcxt@Context {globals} mcxt cxt t =
   case t of
     Local i -> mzero
@@ -48,7 +51,7 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
             . (cs <>)
             . (uncurry (<>) . first (S.singleton . (,from,level)))
             <$> typeOf' mcxt cxt r
-        _ -> error $ "typeOf:" <> show l <> " not a Pi"
+        _ -> throw ApplyToNonFunction
     Lam arg b -> do
       v <- gen
       (toType, cs) <-
@@ -81,7 +84,7 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
         (Global name, spine)
           | name == indName -> pure (spine, mempty)
           | otherwise ->
-            error (show indName <> " != " <> show name)
+            throw InvalidCase
         _ -> do
           paramMetas <- forM params (const $ T.Meta level <$> gen)
           indexMetas <- forM indices (const $ T.Meta level <$> gen)
@@ -114,7 +117,7 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
   where
     typeOf' = typeOf level gcxt
 
-infer :: Members UnifyM r => GlobalContext -> M.Map Id Term -> Term -> Term -> Sem r (Term, Term, Subst, S.Set Constraint)
+infer :: Members U.Effects r => GlobalContext -> M.Map Id Term -> Term -> Term -> Sem r (Term, Term, Subst, S.Set Constraint)
 infer gcxt cxt t1 t2 = go
   where
     go = do
