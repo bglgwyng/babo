@@ -147,7 +147,6 @@ elaborate' gcxt AST.Definition {name, args, maybeType, value} = do
 elaborate' gcxt (Eval x) = do
   meta <- T.Meta 0 <$> gen
   value <- desugarExpression gcxt mempty x
-  trace (show $ ("%eval ", value))
   (value', _, _, _) <- infer gcxt mempty value meta
   trace ("%eval " <> show value <> " = " <> show (reduce Context {metas = mempty, globals = gcxt} value'))
   pure mempty
@@ -155,7 +154,7 @@ elaborate' gcxt (TypeOf x) = do
   meta <- T.Meta 0 <$> gen
   value <- desugarExpression gcxt mempty x
   (_, type', _, _) <- infer gcxt mempty value meta
-  trace ("%check " <> show value <> " : " <> show type')
+  trace ("%typeof " <> show value <> " : " <> show type')
   pure mempty
 elaborate' gcxt (CheckUnify x y) = do
   x <- desugarExpression gcxt mempty x
