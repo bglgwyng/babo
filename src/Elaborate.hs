@@ -66,7 +66,7 @@ elaborate' cxt AST.DataDeclaration {name, args = params, maybeType, variants} =
       forM
         variants
         ( \Variant {name, args} -> do
-            (args', cxt') <- desugarArguments (cxt <> typeDefinition) (fst <$> paramBinds) args
+            (args', cxt') <- desugarArguments (cxt <> typeDefinition) (fst <$> reverse paramBinds) args
             let (argBinds, argTypes) = unzipArgs args'
             pure
               ( name,
