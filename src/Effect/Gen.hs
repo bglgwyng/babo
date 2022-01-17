@@ -1,8 +1,6 @@
 module Effect.Gen where
 
 import Polysemy
-import Polysemy.Input
-import Polysemy.Output
 import Polysemy.State (State, evalState, get, put, runState)
 
 data Gen m a where

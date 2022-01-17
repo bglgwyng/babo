@@ -137,7 +137,7 @@ reduce cxt@Context {globals} = \case
   Pi arg body -> Pi (reduce' arg) (reduce' body)
   x@(Global qname) ->
     maybe
-      (error "reduce: Global")
+      (error ("reduce: Global"))
       ( \case
           Definition {value} -> reduce' value
           _ -> x
