@@ -84,7 +84,7 @@ desugarExpression gcxt = desugar'
         (,[]) <$> forall cxt (toList xs)
         where
           forall :: Members Effects r => LocalContext -> [LocalName] -> Sem r T.Term
-          forall _ [] = desugar' (toList xs <> cxt) to
+          forall _ [] = desugar' (reverse (toList xs) <> cxt) to
           forall cxt (x : xs) =
             T.Pi <$> desugar'' from <*> forall (extend cxt) xs
       AST.Arrow from to ->
