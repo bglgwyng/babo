@@ -22,14 +22,10 @@ import Data.Maybe
 import Data.Monoid hiding (Ap)
 import Data.Set (fromList)
 import qualified Data.Set as S
-import Debug.Trace (traceShowM)
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (gen)
 import Polysemy (Embed, Member, Members, Sem, embed)
 import Polysemy.Error (throw)
-
-logicZero :: Member (Embed Logic) r => Sem r a
-logicZero = embed (mzero :: Logic a)
 
 typeOf :: Members U.Effects r => Level -> Context -> M.Map Id Term -> M.Map Id Term -> Term -> Sem r (Term, S.Set Constraint)
 typeOf level gcxt@Context {globals} mcxt cxt t =

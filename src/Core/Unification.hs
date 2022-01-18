@@ -32,11 +32,11 @@ import Data.Foldable
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Set as S
-import Effect.ElaborationError (ElaborationError)
+import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen, runGen)
 import Polysemy (Embed, Member, Members, Sem, embed, runM)
 import Polysemy.Embed (runEmbedded)
-import Polysemy.Error (Error)
+import Polysemy.Error (Error, throw)
 import Polysemy.NonDet (NonDet, runNonDet)
 
 --------------------------------------------------
@@ -183,8 +183,8 @@ simplify cxt@Context {globals} (t1, t2, level)
     (y, spine2) <- peelApTelescope t2,
     irreducible x && irreducible y = do
     if x == y && length spine1 == length spine2
-      then mzero
-      else fold <$> mapM simplify' (zipWith (,,level) spine1 spine2)
+      then fold <$> mapM simplify' (zipWith (,,level) spine1 spine2)
+      else throw $ CannotUnify t1 t2
   | Lam arg1 body1 <- t1,
     Lam arg2 body2 <- t2 = do
     v <- Free level <$> gen
@@ -204,7 +204,7 @@ simplify cxt@Context {globals} (t1, t2, level)
   | otherwise =
     if isStuck t1 || isStuck t2
       then pure $ S.singleton (t1, t2, level)
-      else mzero
+      else throw $ CannotUnify t1 t2
   where
     irreducible (Free _ _) = True
     irreducible Type = True

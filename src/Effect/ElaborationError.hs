@@ -1,6 +1,7 @@
 module Effect.ElaborationError where
 
 import Common (QName (..))
+import qualified Core.Term as T
 
 data ElaborationError
   = NameNotFound QName
@@ -8,4 +9,5 @@ data ElaborationError
   | InvalidPatterns
   | ApplyToNonFunction
   | InvalidCase
+  | CannotUnify T.Term T.Term
   deriving (Show)
