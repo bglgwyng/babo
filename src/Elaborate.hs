@@ -147,29 +147,33 @@ elaborate' gcxt AST.Definition {name, args, maybeType, value} = do
 elaborate' gcxt (Eval x) = do
   meta <- T.Meta 0 <$> gen
   value <- desugarExpression gcxt mempty x
-  (value', _, _, _) <- infer gcxt mempty value meta
+  (value', _, substs, _) <- infer gcxt mempty value meta
   trace ("%eval " <> show value <> " = " <> show (reduce Context {metas = mempty, globals = gcxt} value'))
+  forM_ (assocs substs) $
+    trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta undefined *** show)
   pure mempty
 elaborate' gcxt (TypeOf x) = do
   meta <- T.Meta 0 <$> gen
   value <- desugarExpression gcxt mempty x
-  (_, type', _, _) <- infer gcxt mempty value meta
+  (_, type', substs, _) <- infer gcxt mempty value meta
   trace ("%typeof " <> show value <> " : " <> show type')
+  forM_ (assocs substs) $
+    trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta undefined *** show)
   pure mempty
 elaborate' gcxt (CheckUnify x y) = do
   x <- desugarExpression gcxt mempty x
   y <- desugarExpression gcxt mempty y
-  (subst, _) <- unify (Context {metas = mempty, globals = gcxt}) $ S.singleton (x, y, 0)
+  (substs, _) <- unify (Context {metas = mempty, globals = gcxt}) $ S.singleton (x, y, 0)
   trace ("%check " <> show x <> " = " <> show y)
-  forM_ (assocs subst) $
+  forM_ (assocs substs) $
     trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta undefined *** show)
   pure mempty
 elaborate' gcxt (CheckTypeOf value type') = do
   value <- desugarExpression gcxt mempty value
   type' <- desugarExpression gcxt mempty type'
-  (_, _, subst, _) <- infer gcxt mempty value type'
+  (_, _, substs, _) <- infer gcxt mempty value type'
   trace ("%check " <> show value <> " : " <> show type')
-  forM_ (assocs subst) $
+  forM_ (assocs substs) $
     trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta undefined *** show)
   pure mempty
 elaborate' gcxt _ = pure mempty

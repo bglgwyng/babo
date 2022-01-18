@@ -26,12 +26,10 @@ import System.IO (putStrLn)
 
 main :: IO ()
 main = runM . traceToIO $ do
-  y <- runError $ x
+  y <- runError do
+    s <- embed getContents
+    let ast = parse (scanTokens s)
+    void $ elaborate ast
   case y of
     Left x -> trace (show x)
     Right _ -> pure ()
-  where
-    x = do
-      s <- embed getContents
-      let ast = parse (scanTokens s)
-      void $ elaborate ast

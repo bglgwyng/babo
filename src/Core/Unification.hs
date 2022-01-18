@@ -21,19 +21,16 @@ where
 import Common
 import Context (GlobalContext, Inhabitant (..))
 import Control.Applicative ((<|>))
-import Control.Monad
-import Control.Monad.Identity (Identity (runIdentity))
-import Control.Monad.Logic
-import Control.Monad.Trans
+import Control.Monad (join, mzero)
 import Core.Term
   ( InductiveType (..),
     Pattern (..),
     Term (..),
   )
+import Data.Either (partitionEithers)
 import Data.Foldable
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.Monoid hiding (Ap)
 import qualified Data.Set as S
 import Effect.ElaborationError (ElaborationError)
 import Effect.Gen (Gen, gen, runGen)
@@ -116,14 +113,15 @@ metavars t = case t of
 -- | Returns @True@ if a term has no free variables and is therefore a
 -- valid candidate for a solution to a metavariable.
 isClosed :: Level -> Term -> Bool
-isClosed level t = case t of
-  Free l i
-    | l >= level -> False
-  Ap l r -> isClosed' l && isClosed' r
-  Lam arg body -> isClosed' arg && isClosed (level + 1) body
-  Pi arg body -> isClosed' arg && isClosed (level + 1) body
-  Case x _ alts -> isClosed' x && all (isClosed' . snd) alts
-  _ -> True
+isClosed level t =
+  case t of
+    Free l i
+      | l >= level -> False
+    Ap l r -> isClosed' l && isClosed' r
+    Lam arg body -> isClosed' arg && isClosed (level + 1) body
+    Pi arg body -> isClosed' arg && isClosed (level + 1) body
+    Case x _ alts -> isClosed' x && all (isClosed' . snd) alts
+    _ -> True
   where
     isClosed' = isClosed level
 
@@ -181,12 +179,12 @@ simplify cxt@Context {globals} (t1, t2, level)
   | t1 == t2 && S.null (metavars t1) = pure S.empty
   | reduce cxt t1 /= t1 = simplify' (reduce cxt t1, t2, level)
   | reduce cxt t2 /= t2 = simplify' (t1, reduce cxt t2, level)
-  | (x, cxt) <- peelApTelescope t1,
-    (y, cxt') <- peelApTelescope t2,
+  | (x, spine1) <- peelApTelescope t1,
+    (y, spine2) <- peelApTelescope t2,
     irreducible x && irreducible y = do
-    if x == y && length cxt == length cxt'
+    if x == y && length spine1 == length spine2
       then mzero
-      else fold <$> mapM simplify' (zipWith (,,level) cxt cxt')
+      else fold <$> mapM simplify' (zipWith (,,level) spine1 spine2)
   | Lam arg1 body1 <- t1,
     Lam arg2 body2 <- t2 = do
     v <- Free level <$> gen
@@ -220,26 +218,15 @@ simplify cxt@Context {globals} (t1, t2, level)
 
 type Subst = M.Map Id Term
 
--- | Generate all possible solutions to flex-rigid equations as an
--- infinite list of computations producing finite lists.
-tryFlexRigid :: Members Effects r => Constraint -> [Sem r [Subst]]
-tryFlexRigid (t1, t2, _)
-  | Meta level i <- t1,
-    (stuckTerm, cxt2) <- peelApTelescope t2,
-    not (i `S.member` metavars t2) =
-    [pure [M.singleton i t2] | isClosed level t2]
-  -- proj (length cxt1) i stuckTerm 0
-  | Meta level i <- t2,
-    (stuckTerm, cxt2) <- peelApTelescope t1,
-    not (i `S.member` metavars t1) =
-    [pure [M.singleton i t1 | isClosed level t1]]
-  | otherwise = []
-
 -- | The reflexive transitive closure of @simplify@
 repeatedlySimplify :: Members Effects r => Context -> S.Set Constraint -> Sem r (S.Set Constraint)
 repeatedlySimplify cxt cs = do
   cs' <- fold <$> traverse (simplify cxt) (S.toList cs)
-  if cs' == cs then pure cs else repeatedlySimplify cxt cs'
+  if cs' == cs
+    then pure cs
+    else repeatedlySimplify cxt cs'
+
+-- if cs' == cs then pure cs else repeatedlySimplify cxt cs'
 
 manySubst :: Subst -> Term -> Term
 manySubst s t = M.foldrWithKey (flip substMV) t s
@@ -253,31 +240,31 @@ s1 <+> s2 = M.union (manySubst s1 <$> s2) s1
 -- flex-flex equations.
 data Context = Context {metas :: Subst, globals :: GlobalContext} deriving (Show)
 
-logicZero :: Member (Embed Logic) r => Sem r a
-logicZero = embed (mzero :: Logic a)
-
 unify :: Members Effects r => Context -> S.Set Constraint -> Sem r (Subst, S.Set Constraint)
-unify cxt@Context {metas = s} cs = do
-  let cs' = applySubst s cs
+unify cxt@Context {metas = substs} cs = do
+  let cs' = applySubst substs cs
   cs'' <- repeatedlySimplify cxt cs'
   let (flexflexes, flexrigids) = S.partition flexflex cs''
   if S.null flexrigids
-    then pure (s, flexflexes)
+    then pure (substs, flexflexes)
     else do
-      let psubsts = tryFlexRigid (S.findMax flexrigids)
-      trySubsts psubsts (flexrigids <> flexflexes)
+      let (psubsts, cs''') = solutions flexrigids
+      unify cxt {metas = psubsts <+> substs} cs'''
   where
+    solutions :: S.Set Constraint -> (Subst, S.Set Constraint)
+    solutions xs =
+      (M.fromList substs, S.fromList constraints)
+      where
+        (substs, constraints) =
+          partitionEithers $
+            ( \case
+                (Meta _ i, x, _) -> Left (i, x)
+                (x, Meta _ i, _) -> Left (i, x)
+                x -> Right x
+            )
+              `map` toList xs
     applySubst s = S.map (\(t1, t2, level) -> (manySubst s t1, manySubst s t2, level))
     flexflex (t1, t2, _) = isStuck t1 && isStuck t2
-    trySubsts :: Members Effects r => [Sem r [Subst]] -> S.Set Constraint -> Sem r (Subst, S.Set Constraint)
-    trySubsts [] cs = mzero
-    trySubsts (mss : psubsts) cs = do
-      ss <- mss
-      let these = foldr interleave mzero [unify cxt {metas = newS <+> s} cs | newS <- ss]
-      let those = trySubsts psubsts cs
-      these `interleave` those
-    interleave :: Member NonDet r => Sem r a -> Sem r a -> Sem r a
-    interleave = (<|>)
 
 -- runUnifyM :: Sem '[Gen, NonDet] a -> [a]
 runUnifyM :: Sem (Gen : NonDet : r) a -> Sem r [a]

@@ -22,6 +22,7 @@ import Data.Maybe
 import Data.Monoid hiding (Ap)
 import Data.Set (fromList)
 import qualified Data.Set as S
+import Debug.Trace (traceShowM)
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (gen)
 import Polysemy (Embed, Member, Members, Sem, embed)
@@ -122,5 +123,5 @@ infer gcxt cxt t1 t2 = go
   where
     go = do
       (tp, cs) <- typeOf 0 Context {metas = M.empty, globals = gcxt} M.empty cxt t1
-      (subst, flexflex) <- unify Context {metas = M.empty, globals = gcxt} (cs <> S.singleton (tp, t2, 0))
+      (subst, flexflex) <- unify Context {metas = M.empty, globals = gcxt} (cs <> S.singleton (t2, tp, 0))
       pure (manySubst subst t1, manySubst subst tp, subst, flexflex)
