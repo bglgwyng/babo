@@ -19,7 +19,7 @@ module Core.Unification
 where
 
 import Common
-import Context (GlobalContext, Inhabitant (..))
+import Context (GlobalContext, Inhabitant (Definition), value)
 import Control.Applicative ((<|>))
 import Control.Monad (join, mzero)
 import Core.Term
@@ -32,6 +32,7 @@ import Data.Foldable
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import qualified Data.Set as S
+import Debug.Trace
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen, runGen)
 import Polysemy (Embed, Member, Members, Sem, embed, runM)
@@ -142,6 +143,10 @@ reduce cxt@Context {globals} = \case
           _ -> x
       )
         <$> M.lookup qname globals
+  Case x (Just ind) branches
+    | (Global constructor, spine) <- traceShowId $ peelApTelescope (reduce' x) ->
+      let Just (_, body) = find (\(Constructor name', _) -> name' == name constructor) branches
+       in reduce' $ foldr (`subst` 0) body spine
   x -> x
   where
     reduce' = reduce cxt
