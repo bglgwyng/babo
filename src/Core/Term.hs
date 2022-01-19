@@ -31,9 +31,9 @@ data Plicity = Explicit | Implicit deriving (Show, Eq, Ord)
 
 data Argument = Argument
   { name :: LocalName,
-    type' :: Term,
     -- FIXME:
-    plicity :: Plicity
+    plicity :: Plicity,
+    type' :: Term
   }
   deriving (Show, Eq, Ord)
 

@@ -97,7 +97,7 @@ typeOf level gcxt@Context {globals} mcxt cxt t =
                 vs <-
                   forM
                     (zip [0 ..] args)
-                    ( \(i, T.Argument _ argType _) ->
+                    ( \(i, T.Argument _ _ argType) ->
                         (,foldr (uncurry subst) argType (second (+ i) <$> params'))
                           <$> gen
                     )

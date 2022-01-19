@@ -147,14 +147,13 @@ elaborate' gcxt AST.Definition {name, args, maybeType, value} = do
 elaborate' gcxt (Eval x) = do
   meta <- T.Meta 0 <$> gen
   value <- desugarExpression gcxt mempty x
-  (value', _, substs, _) <- infer gcxt mempty value meta
+  (value', _, _, _) <- infer gcxt mempty value meta
   trace ("%eval " <> show value <> " = " <> show (reduce Context {metas = mempty, globals = gcxt} value'))
-  forM_ (assocs substs) $
-    trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta undefined *** show)
   pure mempty
 elaborate' gcxt (TypeOf x) = do
   meta <- T.Meta 0 <$> gen
   value <- desugarExpression gcxt mempty x
+  trace "%typeof?"
   (_, type', substs, _) <- infer gcxt mempty value meta
   trace ("%typeof " <> show value <> " : " <> show type')
   forM_ (assocs substs) $
@@ -179,7 +178,7 @@ elaborate' gcxt (CheckTypeOf value type') = do
 elaborate' gcxt _ = pure mempty
 
 unzipArgs :: [T.Argument] -> ([(LocalName, T.Plicity)], [T.Term])
-unzipArgs args = unzip $ (\(T.Argument name type' plicity) -> ((name, plicity), type')) <$> args
+unzipArgs args = unzip $ (\(T.Argument name plicity type') -> ((name, plicity), type')) <$> args
 
 elaborate :: Members '[Trace, Error ElaborationError] r => AST.Source -> Sem r GlobalContext
 elaborate (AST.Source xs) = do
@@ -187,6 +186,7 @@ elaborate (AST.Source xs) = do
     ( \xs y ->
         do
           x <- (listToMaybe <$>) . runUnifyM $ elaborate' xs y
+          trace "YY"
           pure $ xs <> fromJust x
     )
     mempty

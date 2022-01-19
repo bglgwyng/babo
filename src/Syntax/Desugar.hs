@@ -182,7 +182,7 @@ desugarExpression gcxt = desugar'
     lambda :: Members Effects r => LocalContext -> [AST.Argument] -> AST.Expression -> Sem r T.Term
     lambda cxt xs body = do
       (args, context) <- desugarArguments gcxt cxt xs
-      let argTypes = (\(T.Argument _ x _) -> x) <$> args
+      let argTypes = T.type' <$> args
       body' <- desugarExpression gcxt context body
       pure $ foldr T.Lam body' argTypes
 
@@ -202,5 +202,5 @@ desugarArguments gcxt = go
         )
       where
         bindName :: T.Term -> LocalName -> T.Argument
-        bindName type' ('\'' : name) = T.Argument name type' T.Implicit
-        bindName type' name = T.Argument name type' T.Explicit
+        bindName type' ('\'' : name) = T.Argument {name, plicity = T.Implicit, type'}
+        bindName type' name = T.Argument {name, plicity = T.Explicit, type'}
