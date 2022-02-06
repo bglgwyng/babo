@@ -10,4 +10,5 @@ data ElaborationError
   | ApplyToNonFunction
   | InvalidCase
   | CannotUnify T.Term T.Term
+  | UnresolvedMeta
   deriving (Show)

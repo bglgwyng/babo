@@ -10,9 +10,8 @@ import Control.Monad (foldM)
 import Control.Monad.Identity (Identity (Identity), IdentityT (runIdentityT), runIdentity)
 import Control.Monad.Logic
 import Control.Monad.Trans (lift)
-import Core.Client (infer)
 import qualified Core.Term as T
-import Core.Unification (Constraint (Equal), Context (..), manySubst, reduce, runUnifyM, subst, substFV, unify)
+import Core.Unification
 import qualified Core.Unification as U
 import Data.Bifunctor
 import Data.Foldable (Foldable (toList), fold)
@@ -25,6 +24,7 @@ import qualified Data.Set as S
 import Data.Traversable (forM)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
+import Debug.Trace (traceShowM)
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (gen)
 import Polysemy (Embed, Member, Members, Sem, embed, run)
@@ -36,13 +36,6 @@ import Polysemy.Trace (Trace, trace)
 import Syntax.AST
 import qualified Syntax.AST as AST
 import Syntax.Desugar (desugarArguments, desugarExpression, fillHole)
-import qualified Syntax.Desugar as D
-
--- foo :: GlobalContext -> D.GlobalContext
--- foo xs = bar <$> xs
---   where
---     bar (DataConstructor args _ ind) = (args, Just ind)
---     bar x = (args x, Nothing)
 
 elaborate' :: Members (Trace ': Error ElaborationError ': U.Effects) r => AST.TopLevelStatement -> Sem r GlobalContext
 elaborate' AST.DataDeclaration {name, args = params, maybeType, variants} = do
@@ -119,13 +112,14 @@ elaborate' AST.Declaration {name, args, type'} = do
   -- FIXME:
   let (argBinds, argTypes) = unzipArgs args'
   type' <- foldr T.Pi `flip` argTypes <$> desugarExpression gcxt cxt' type'
-  (type', _, _, _) <- infer mempty type' T.Type
+  resolve <- unifyAll $ S.singleton (type' ?: T.Type)
+  -- (type', _, _) <- solve (type' ?: T.Type)
   pure
     ( M.singleton
         (QName [] name)
         ( Context.Declaration
             { args = argBinds,
-              Context.type' = type'
+              Context.type' = resolve type'
             }
         )
     )
@@ -140,14 +134,14 @@ elaborate' AST.Definition {name, args, maybeType, value} = do
   value' <-
     foldr T.Lam `flip` argTypes
       <$> desugarExpression gcxt cxt' value
-  (value', type', _, _) <- infer mempty value' type'
+  resolve <- unifyAll $ S.singleton (value' ?: type')
   pure
     ( M.singleton
         (QName [] name)
         ( Context.Definition
             { args = argBinds,
-              type' = type',
-              value = value'
+              type' = resolve type',
+              value = resolve value'
             }
         )
     )
@@ -156,21 +150,17 @@ elaborate' (Eval x) = do
   metaId <- gen
   let meta = T.Meta metaId
   value <- desugarExpression gcxt mempty x
-  (value', _, substs, _) <- infer mempty value meta
-  let value' = reduce gcxt True value'
+  resolve <- unifyAll $ S.singleton (value ?: meta)
+  let value' = reduce gcxt True $ resolve value
   trace ("%eval " <> show value <> " = " <> show value')
-  forM_ (assocs (M.delete metaId substs)) $
-    trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta *** show)
   pure mempty
-elaborate' (TypeOf x) = do
+elaborate' (AST.TypeOf x) = do
   gcxt <- ask
   metaId <- gen
   let meta = T.Meta metaId
   value <- desugarExpression gcxt mempty x
-  (value', type', substs, _) <- infer mempty value meta
-  trace ("%typeof " <> show value' <> " : " <> show type')
-  forM_ (assocs (substs)) $
-    trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta *** show)
+  resolve <- unifyAll $ S.singleton (value ?: meta)
+  trace ("%typeof " <> show (resolve value) <> " : " <> show (resolve meta))
   pure mempty
 elaborate' (CheckUnify x y) = do
   gcxt <- ask
@@ -196,13 +186,13 @@ elaborate' _ = pure mempty
 unzipArgs :: [T.Argument] -> ([(LocalName, T.Plicity)], [T.Term])
 unzipArgs args = unzip $ (\(T.Argument name plicity type') -> ((name, plicity), type')) <$> args
 
-elaborate :: Members (Trace ': '[Error ElaborationError]) r => AST.Source -> Sem r GlobalContext
+elaborate :: Members '[Trace, Error ElaborationError] r => AST.Source -> Sem r GlobalContext
 elaborate (AST.Source xs) = do
   foldM
     ( \xs y ->
         do
-          x <- (listToMaybe <$>) . runUnifyM xs $ elaborate' y
-          pure $ xs <> fromJust x
+          x <- runUnifyM xs emptyContext $ elaborate' y
+          pure $ xs <> x
     )
     mempty
     xs

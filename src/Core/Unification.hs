@@ -10,6 +10,7 @@ module Core.Unification
     Constraint (..),
     Subst (..),
     unify,
+    unifyAll,
     runUnifyM,
     -- driver,
     Effects,
@@ -17,6 +18,9 @@ module Core.Unification
     peelApTelescope,
     applyApTelescope,
     reduce,
+    emptyContext,
+    (?:),
+    (?=),
   )
 where
 
@@ -51,7 +55,7 @@ import Polysemy.Embed (runEmbedded)
 import Polysemy.Error (Error, throw)
 import Polysemy.NonDet (NonDet, runNonDet)
 import Polysemy.Reader (Reader, ask, runReader)
-import Polysemy.State (State, evalState, get, modify, put)
+import Polysemy.State (State, evalState, execState, get, modify, put)
 import Prettyprinter (Pretty (pretty), defaultLayoutOptions, hsep, indent, layoutPretty, line, vsep, (<+>))
 import Prettyprinter.Render.String (renderString)
 
@@ -163,22 +167,20 @@ occurs x = go
 
 emit :: Members Effects r => Constraint -> Sem r ()
 emit x = do
-  cxt@Context {metas, frees, constraints, solutions} <- get
+  cxt@Context {metas, constraints, solutions} <- get
   let emitSolutions :: Members Effects r => Id -> Term -> Sem r ()
       emitSolutions k v = do
         put
           cxt
             { metas = substMV v k <$> metas,
-              frees = substMV v k <$> frees,
               constraints =
-                S.fromList $
+                S.map
                   ( \case
                       Equal t1 t2 -> Equal (substMV v k t1) (substMV v k t2)
                       TypeOf t1 t2 -> TypeOf (substMV v k t1) (substMV v k t2)
                   )
-                    <$> S.toList constraints,
-              solutions = M.insert k v solutions
-              --  (substMV v k <$> solutions)
+                  constraints,
+              solutions = M.insert k v (substMV v k <$> solutions)
             }
       shouldBeFree :: Term -> Maybe (Term, Id)
       shouldBeFree (Free type' i) = Just (type', i)
@@ -201,14 +203,14 @@ emit x = do
           length frees == length frees',
           all (`S.member` frees') (freevars y),
           -- TODO: check if there are no other free vars in term
-          let Just argTypes =
-                sequenceA $
-                  ( \(substs, (y, _)) ->
-                      if all (`S.member` S.fromList (snd <$> substs)) (freevars y)
-                        then Just $ foldr (uncurry $ substFV . Local) y $ zip [0 ..] $ snd <$> reverse substs
-                        else Nothing
-                  )
-                    <$> withPrevious frees,
+          Just argTypes <-
+            sequenceA $
+              ( \(substs, (y, _)) ->
+                  if all (`S.member` S.fromList (snd <$> substs)) (freevars y)
+                    then Just $ foldr (uncurry $ substFV . Local) y $ zip [0 ..] $ snd <$> reverse substs
+                    else Nothing
+              )
+                <$> withPrevious frees,
           let body = foldr (uncurry $ substFV . Local) y $ zip [0 ..] $ snd <$> reverse frees =
           pure (i, foldr T.Lam body argTypes)
         where
@@ -222,15 +224,15 @@ emit x = do
     Equal x y | x == y -> pure ()
     Equal x y | Just (i, v) <- solve x y -> emitSolutions i v
     Equal y x | Just (i, v) <- solve x y -> emitSolutions i v
-    Equal y@(Meta i) x | isClosed x && not (occurs y x) -> do
+    Equal y@(Meta i) x | isClosed x && not (occurs y x) ->
       case M.lookup i solutions of
         Just y -> emit (x ?= y)
         Nothing -> emitSolutions i x
-    Equal x y@(Meta i) | isClosed x && not (occurs y x) -> do
+    Equal x y@(Meta i) | isClosed x && not (occurs y x) ->
       case M.lookup i solutions of
         Just y -> emit (x ?= y)
         Nothing -> emitSolutions i x
-    TypeOf (Meta i) x -> do
+    TypeOf (Meta i) x ->
       case M.lookup i metas of
         Just y -> emit (x ?= y)
         Nothing -> put cxt {metas = M.insert i x metas}
@@ -290,7 +292,7 @@ applyApTelescope = foldl' Ap
 -------------- the actual unification code ----------------------
 -----------------------------------------------------------------
 
-type Effects = '[NonDet, Gen, Error ElaborationError, State Context, Reader GlobalContext]
+type Effects = '[Gen, Error ElaborationError, State Context, Reader GlobalContext]
 
 data Constraint = Equal Term Term | TypeOf Term Term deriving (Eq, Ord)
 
@@ -314,10 +316,10 @@ instance Show Constraint where
 typeOf :: Members Effects r => Term -> Sem r Term
 typeOf t = do
   globals <- ask
-  cxt@Context {metas, frees} <- get
+  cxt@Context {metas} <- get
   case t of
     Local i -> error "impossible"
-    Free i -> pure $ fromJust $ M.lookup i frees
+    Free type' _ -> pure type'
     Meta i ->
       maybe
         ( do
@@ -401,6 +403,15 @@ simplify :: Members Effects r => Constraint -> Sem r ()
 simplify e = resolveConstraint e *> simplify' e
   where
     simplify' :: Members Effects r => Constraint -> Sem r ()
+    simplify' e@(TypeOf (Lam argType1 type') (Pi argType2 bodyType)) = do
+      globals <- ask @GlobalContext
+      emit (argType1 ?= argType2)
+      free <- introFree argType1
+      emit (subst free 0 type' ?: subst free 0 bodyType)
+    simplify' e@(TypeOf (Lam argType1 type') t) = do
+      globals <- ask @GlobalContext
+      free <- introFree argType1
+      emit (subst free 0 type' ?: Ap t free)
     simplify' e@(TypeOf t1 t2) = do
       globals <- ask @GlobalContext
       type' <- typeOf t1
@@ -409,7 +420,6 @@ simplify e = resolveConstraint e *> simplify' e
       | t1 == t2 && S.null (metavars t1) = void $ resolveConstraint e
       | otherwise = do
         globals <- ask
-        cxt@Context {frees} <- get
         let irreducible Free {} = True
             irreducible Type = True
             irreducible (Global qname) =
@@ -464,8 +474,7 @@ s1 `union` s2 = M.union (manySubst s1 <$> s2) s1
 -- constraints, produce a solution substution and the resulting set of
 -- flex-flex equations.
 data Context = Context
-  { frees :: M.Map Id Term,
-    metas :: M.Map Id Term,
+  { metas :: M.Map Id Term,
     constraints :: S.Set Constraint,
     solutions :: M.Map Id Term
   }
@@ -475,7 +484,7 @@ instance Show Context where
   show = renderString . layoutPretty defaultLayoutOptions . pretty
 
 instance Pretty Context where
-  pretty Context {frees, metas, constraints, solutions} =
+  pretty Context {metas, constraints, solutions} =
     unless
       (null metas)
       ( pretty "metas:"
@@ -483,13 +492,6 @@ instance Pretty Context where
           <> vsep ((\(k, v) -> indent 2 $ pretty k <> pretty "? : " <> pretty (show v)) <$> assocs metas)
           <> line
       )
-      <> unless
-        (null frees)
-        ( pretty "frees:"
-            <> line
-            <> vsep ((\(k, v) -> indent 2 $ pretty k <> pretty "$ : " <> pretty (show v)) <$> assocs frees)
-            <> line
-        )
       <> unless
         (null constraints)
         ( pretty
@@ -522,10 +524,23 @@ unify' = do
   newCxt <- get
   unless (oldCxt == newCxt) unify'
 
--- runUnifyM :: Sem '[Gen, NonDet] a -> [a]
-runUnifyM :: GlobalContext -> Sem (State Context : Reader GlobalContext : Gen : NonDet : r) a -> Sem r [a]
-runUnifyM cxt =
-  runNonDet
-    . runGen
-    . runReader cxt
-    . evalState Context {frees = mempty, metas = mempty, constraints = mempty, solutions = mempty}
+unifyAll :: Members Effects r => S.Set Constraint -> Sem r (Term -> Term)
+unifyAll constraints = do
+  (subst, flexflex) <- unify constraints
+  if null flexflex
+    then pure $ manySubst subst
+    else throw UnresolvedMeta
+
+emptyContext :: Context
+emptyContext =
+  Context
+    { metas = M.empty,
+      constraints = S.empty,
+      solutions = M.empty
+    }
+
+runUnifyM :: GlobalContext -> Context -> Sem (State Context : Reader GlobalContext : Gen : r) a -> Sem r a
+runUnifyM globals cxt =
+  runGen
+    . runReader globals
+    . evalState cxt
