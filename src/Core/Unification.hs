@@ -109,6 +109,7 @@ substMV new i t
     instantiate (Lam _ body) (x : xs) = instantiate (subst x 0 body) xs
     instantiate new xs = applyApTelescope new xs
 substMV new i t = case t of
+  Free type' j -> Free (substMV new i type') j
   Ap l r -> substMV new i l `Ap` substMV new i r
   Lam arg body -> Lam (substMV new i arg) (substMV (raise 1 new) i body)
   Pi arg body -> Pi (substMV new i arg) (substMV (raise 1 new) i body)
@@ -117,7 +118,7 @@ substMV new i t = case t of
 -- | Substitute a term for all free variable with a given identifier.
 substFV :: Term -> Id -> Term -> Term
 substFV new i t = case t of
-  Free j | i == j -> new
+  Free _ j | i == j -> new
   Ap l r -> substFV new i l `Ap` substFV new i r
   Lam arg body -> Lam (substFV new i arg) (substFV (raise 1 new) i body)
   Pi arg body -> Pi (substFV new i arg) (substFV (raise 1 new) i body)
@@ -145,10 +146,7 @@ isClosed t =
     _ -> True
 
 introFree :: Members Effects r => Term -> Sem r Term
-introFree type' = do
-  k <- gen
-  modify \cxt@Context {frees} -> cxt {frees = M.insert k type' frees}
-  pure $ Free k
+introFree type' = Free type' <$> gen
 
 resolveConstraint :: Members Effects r => Constraint -> Sem r ()
 resolveConstraint x = modify (\cxt@Context {constraints} -> cxt {constraints = S.delete x constraints})
@@ -183,11 +181,11 @@ emit x = do
               --  (substMV v k <$> solutions)
             }
       shouldBeFree :: Term -> Maybe (Term, Id)
-      shouldBeFree (Free i) = Just (fromJust $ M.lookup i frees, i)
+      shouldBeFree (Free type' i) = Just (type', i)
       shouldBeFree _ = Nothing
       freevars :: Term -> [Id]
       freevars t = case t of
-        Free i -> [i]
+        Free _ i -> [i]
         Ap l r -> freevars l <> freevars r
         Lam arg body -> freevars arg <> freevars body
         Pi arg body -> freevars arg <> freevars body
@@ -347,7 +345,7 @@ typeOf t = do
       free <- introFree arg
       bodyType <- typeOf (subst free 0 body)
       emit $ bodyType ?: Type
-      let Free k = free
+      let Free _ k = free
       pure $ Pi arg (substFV (Local 0) k bodyType)
     Pi from to -> do
       free <- introFree from
