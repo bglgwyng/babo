@@ -23,6 +23,7 @@ import Data.List.NonEmpty.Extra (groupWith)
 import Data.Map as M (Map, delete, fromList, lookup, member, singleton)
 import Data.Maybe (catMaybes, fromJust, fromMaybe, isNothing)
 import Data.Tuple.Extra (dupe, firstM)
+import Debug.Trace
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen)
 import Polysemy (Member, Members, Sem)
@@ -75,11 +76,11 @@ desugarExpression gcxt = desugar'
             | otherwise = error "?"
           apply xs'@((Just name, x) : xs) ((arg, _) : args)
             | name == arg = (first . (:) <$> desugar'' x) <*> apply xs args
-            | otherwise = (first . (:) . T.Meta scope <$> gen) <*> apply xs' args
+            | otherwise = (first . (:) <$> fillHole cxt) <*> apply xs' args
           apply ((Nothing, x) : xs) ((_, T.Explicit) : args) = (first . (:) <$> desugar'' x) <*> apply xs args
-          apply xs ((_, T.Implicit) : args) = (first . (:) . T.Meta scope <$> gen) <*> apply xs args
+          apply xs ((_, T.Implicit) : args) = (first . (:) <$> fillHole cxt) <*> apply xs args
       AST.Identifier x -> (lookup x)
-      AST.Meta -> ((,[]) . T.Meta scope <$> gen)
+      AST.Meta -> ((,[]) <$> fillHole cxt)
       AST.ForAll xs from to ->
         (,[]) <$> forall cxt (toList xs)
         where
@@ -90,12 +91,12 @@ desugarExpression gcxt = desugar'
       AST.Arrow from to ->
         (,[]) <$> (T.Pi <$> desugar'' from <*> desugar' (extend cxt) to)
       AST.Let name value body ->
-        (,[]) <$> (T.Ap <$> (T.Lam <$> (T.Meta (scope + 1) <$> gen) <*> desugar' (name : cxt) body) <*> desugar'' value)
+        (,[]) <$> (T.Ap <$> (T.Lam <$> (fillHole cxt) <*> desugar' (name : cxt) body) <*> desugar'' value)
       AST.Case xs cases -> do
         xs' <- forM xs desugar''
         let bounds = reverse [0 .. length xs' - 1]
         y <- go bounds ((cxt,) <$> cases)
-        argTypes <- forM (zip [scope ..] xs') (T.Meta . fst >>> (<$> gen))
+        argTypes <- forM xs' (const $ fillHole cxt)
         pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs', [])
         where
           go :: Members Effects r => [Int] -> [(LocalContext, AST.Case)] -> Sem r T.Term
@@ -186,13 +187,18 @@ desugarExpression gcxt = desugar'
       body' <- desugarExpression gcxt context body
       pure $ foldr T.Lam body' argTypes
 
+fillHole :: Members Effects r => LocalContext -> Sem r T.Term
+fillHole cxt = do
+  meta <- Meta <$> gen
+  pure $ foldr (flip T.Ap . T.Local) meta (zipWith const [0 ..] cxt)
+
 desugarArguments :: Members Effects r => GlobalContext -> LocalContext -> [AST.Argument] -> Sem r ([T.Argument], LocalContext)
 desugarArguments gcxt = go
   where
     go :: Members Effects r => LocalContext -> [AST.Argument] -> Sem r ([T.Argument], LocalContext)
     go cxt [] = pure ([], [])
     go cxt ((names, type', _) : xs) = do
-      type'' <- maybe (T.Meta (length cxt) <$> gen) (desugarExpression gcxt cxt) type'
+      type'' <- maybe (fillHole cxt) (desugarExpression gcxt cxt) type'
       let args' = bindName type'' <$> names
           names' = toList (T.name <$> args')
       (args, context) <- go (names' <> cxt) xs
