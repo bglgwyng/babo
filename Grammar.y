@@ -179,7 +179,7 @@ Expression :: { Expression }
           : let lsym '=' Expression ',' Expression           { Let $2 $4 $6 }
           | forall LocalName_s ':' Expression ',' Expression { ForAll $2 $4 $6 }
           | case CommaSeperated '{' Cases '}'                { Case $2 $4 } 
-          | '\\' LambdaArguments '->' Atom                   { Lambda $2 $4 }
+          | '\\' LambdaArguments '->' Expression             { Lambda $2 $4 }
           | '\\' LambdaArguments '{' Cases '}'               { LambdaCase (toList $2) $4 } 
           | '\\' '{' Cases '}'                               { LambdaCase [] $3 } 
           | BinaryExpression                                 { $1 }
