@@ -91,7 +91,7 @@ desugarExpression gcxt = desugar'
       AST.Arrow from to ->
         (,[]) <$> (T.Pi <$> desugar'' from <*> desugar' (extend cxt) to)
       AST.Let name value body ->
-        (,[]) <$> (T.Ap <$> (T.Lam <$> (fillHole cxt) <*> desugar' (name : cxt) body) <*> desugar'' value)
+        (,[]) <$> (T.Ap <$> (T.Lam <$> fillHole cxt <*> desugar' (name : cxt) body) <*> desugar'' value)
       AST.Case xs cases -> do
         xs' <- forM xs desugar''
         let bounds = reverse [0 .. length xs' - 1]
@@ -181,10 +181,10 @@ desugarExpression gcxt = desugar'
                       <$> M.lookup qname gcxt
                   )
     lambda :: Members Effects r => LocalContext -> [AST.Argument] -> AST.Expression -> Sem r T.Term
-    lambda cxt xs body = do
-      (args, context) <- desugarArguments gcxt cxt xs
+    lambda cxt args body = do
+      (args, cxt') <- desugarArguments gcxt cxt args
       let argTypes = T.type' <$> args
-      body' <- desugarExpression gcxt context body
+      body' <- desugarExpression gcxt (cxt' <> cxt) body
       pure $ foldr T.Lam body' argTypes
 
 fillHole :: Members Effects r => LocalContext -> Sem r T.Term
@@ -197,11 +197,11 @@ desugarArguments gcxt = go
   where
     go :: Members Effects r => LocalContext -> [AST.Argument] -> Sem r ([T.Argument], LocalContext)
     go cxt [] = pure ([], [])
-    go cxt ((names, type', _) : xs) = do
+    go cxt ((names, type', _) : args) = do
       type'' <- maybe (fillHole cxt) (desugarExpression gcxt cxt) type'
       let args' = bindName type'' <$> names
           names' = toList (T.name <$> args')
-      (args, context) <- go (names' <> cxt) xs
+      (args, context) <- go (names' <> cxt) args
       pure
         ( toList args' <> args,
           context <> reverse names'
