@@ -14,11 +14,11 @@ module Core.Unification
     runUnifyM,
     -- driver,
     Effects,
-    Context (..),
+    UnifyState (..),
     peelApTelescope,
     applyApTelescope,
     reduce,
-    emptyContext,
+    initialState,
     (?:),
     (?=),
   )
@@ -153,7 +153,7 @@ introFree :: Members Effects r => Term -> Sem r Term
 introFree type' = Free type' <$> gen
 
 resolveConstraint :: Members Effects r => Constraint -> Sem r ()
-resolveConstraint x = modify (\cxt@Context {constraints} -> cxt {constraints = S.delete x constraints})
+resolveConstraint x = modify (\state@UnifyState {constraints} -> state {constraints = S.delete x constraints})
 
 occurs :: Term -> Term -> Bool
 occurs x = go
@@ -167,11 +167,11 @@ occurs x = go
 
 emit :: Members Effects r => Constraint -> Sem r ()
 emit x = do
-  cxt@Context {metas, constraints, solutions} <- get
+  state@UnifyState {metas, constraints, solutions} <- get
   let emitSolutions :: Members Effects r => Id -> Term -> Sem r ()
       emitSolutions k v = do
         put
-          cxt
+          state
             { metas = substMV v k <$> metas,
               constraints =
                 S.map
@@ -226,17 +226,17 @@ emit x = do
     Equal y x | Just (i, v) <- solve x y -> emitSolutions i v
     Equal y@(Meta i) x | isClosed x && not (occurs y x) ->
       case M.lookup i solutions of
-        Just y -> emit (x ?= y)
+        Just y -> emit $ x ?= y
         Nothing -> emitSolutions i x
     Equal x y@(Meta i) | isClosed x && not (occurs y x) ->
       case M.lookup i solutions of
-        Just y -> emit (x ?= y)
+        Just y -> emit $ x ?= y
         Nothing -> emitSolutions i x
     TypeOf (Meta i) x ->
       case M.lookup i metas of
-        Just y -> emit (x ?= y)
-        Nothing -> put cxt {metas = M.insert i x metas}
-    x -> modify (\cxt@Context {constraints} -> cxt {constraints = S.insert x constraints})
+        Just y -> emit $ x ?= y
+        Nothing -> put state {metas = M.insert i x metas}
+    x -> modify (\state@UnifyState {constraints} -> state {constraints = S.insert x constraints})
 
 -- | Implement reduction for the language. Given a term, normalize it.
 -- This boils down mainly to applying lambdas to their arguments and all
@@ -292,7 +292,7 @@ applyApTelescope = foldl' Ap
 -------------- the actual unification code ----------------------
 -----------------------------------------------------------------
 
-type Effects = '[Gen, Error ElaborationError, State Context, Reader GlobalContext]
+type Effects = '[Gen, Error ElaborationError, State UnifyState, Reader GlobalContext]
 
 data Constraint = Equal Term Term | TypeOf Term Term deriving (Eq, Ord)
 
@@ -316,7 +316,7 @@ instance Show Constraint where
 typeOf :: Members Effects r => Term -> Sem r Term
 typeOf t = do
   globals <- ask
-  cxt@Context {metas} <- get
+  state@UnifyState {metas, constraints} <- get
   case t of
     Local i -> error "impossible"
     Free type' _ -> pure type'
@@ -324,7 +324,7 @@ typeOf t = do
       maybe
         ( do
             meta <- Meta <$> gen
-            emit (t ?: meta)
+            emit $ t ?: meta
             pure meta
         )
         pure
@@ -337,11 +337,21 @@ typeOf t = do
     Type -> pure Type
     Ap l r -> do
       lType <- typeOf l
-      case lType of
-        Pi from to -> do
-          emit (r ?: from)
-          pure (subst r 0 to)
-        _ -> throw ApplyToNonFunction
+      traceShowM ("ap", t, l)
+      if
+          | Pi from to <- lType -> do
+            emit $ r ?: from
+            pure (subst r 0 to)
+          | (Meta _, _) <- peelApTelescope lType -> do
+            argMeta <- Meta <$> gen
+            emit $ argMeta ?: Type
+            bodyMeta <- Meta <$> gen
+            emit $ bodyMeta ?: Type
+
+            emit $ lType ?= Pi argMeta bodyMeta
+            emit $ r ?: argMeta
+            pure bodyMeta
+          | otherwise -> throw ApplyToNonFunction
     Lam arg body -> do
       emit $ arg ?: Type
       free <- introFree arg
@@ -405,17 +415,13 @@ simplify e = resolveConstraint e *> simplify' e
     simplify' :: Members Effects r => Constraint -> Sem r ()
     simplify' e@(TypeOf (Lam argType1 type') (Pi argType2 bodyType)) = do
       globals <- ask @GlobalContext
-      emit (argType1 ?= argType2)
+      emit $ argType1 ?= argType2
       free <- introFree argType1
-      emit (subst free 0 type' ?: subst free 0 bodyType)
-    simplify' e@(TypeOf (Lam argType1 type') t) = do
-      globals <- ask @GlobalContext
-      free <- introFree argType1
-      emit (subst free 0 type' ?: Ap t free)
+      emit $ subst free 0 type' ?: subst free 0 bodyType
     simplify' e@(TypeOf t1 t2) = do
       globals <- ask @GlobalContext
       type' <- typeOf t1
-      emit (type' ?= t2)
+      emit $ type' ?= t2
     simplify' e@(Equal t1 t2)
       | t1 == t2 && S.null (metavars t1) = void $ resolveConstraint e
       | otherwise = do
@@ -458,7 +464,7 @@ simplify e = resolveConstraint e *> simplify' e
                 ]
             | otherwise -> do
               if isStuck t1 || isStuck t2
-                then emit (t1 ?= t2)
+                then emit $ t1 ?= t2
                 else throw $ CannotUnify t1 t2
 
 type Subst = M.Map Id Term
@@ -473,18 +479,18 @@ s1 `union` s2 = M.union (manySubst s1 <$> s2) s1
 -- | The top level function, given a substitution and a set of
 -- constraints, produce a solution substution and the resulting set of
 -- flex-flex equations.
-data Context = Context
+data UnifyState = UnifyState
   { metas :: M.Map Id Term,
     constraints :: S.Set Constraint,
     solutions :: M.Map Id Term
   }
   deriving (Eq)
 
-instance Show Context where
+instance Show UnifyState where
   show = renderString . layoutPretty defaultLayoutOptions . pretty
 
-instance Pretty Context where
-  pretty Context {metas, constraints, solutions} =
+instance Pretty UnifyState where
+  pretty UnifyState {metas, constraints, solutions} =
     unless
       (null metas)
       ( pretty "metas:"
@@ -513,16 +519,16 @@ instance Pretty Context where
 
 unify :: Members Effects r => S.Set Constraint -> Sem r (Subst, S.Set Constraint)
 unify cs = do
-  modify \cxt -> cxt {constraints = cs}
+  modify \state -> state {constraints = cs}
   unify'
   (solutions &&& constraints) <$> get
 
 unify' :: Members Effects r => Sem r ()
 unify' = do
-  oldCxt@Context {constraints} <- get
+  oldState@UnifyState {constraints} <- get
   fold <$> forM (toList constraints) simplify
-  newCxt <- get
-  unless (oldCxt == newCxt) unify'
+  state <- get
+  unless (oldState == state) unify'
 
 unifyAll :: Members Effects r => S.Set Constraint -> Sem r (Term -> Term)
 unifyAll constraints = do
@@ -531,16 +537,16 @@ unifyAll constraints = do
     then pure $ manySubst subst
     else throw UnresolvedMeta
 
-emptyContext :: Context
-emptyContext =
-  Context
+initialState :: UnifyState
+initialState =
+  UnifyState
     { metas = M.empty,
       constraints = S.empty,
       solutions = M.empty
     }
 
-runUnifyM :: GlobalContext -> Context -> Sem (State Context : Reader GlobalContext : Gen : r) a -> Sem r a
-runUnifyM globals cxt =
+runUnifyM :: GlobalContext -> UnifyState -> Sem (State UnifyState : Reader GlobalContext : Gen : r) a -> Sem r a
+runUnifyM globals state =
   runGen
     . runReader globals
-    . evalState cxt
+    . evalState state

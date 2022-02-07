@@ -24,7 +24,7 @@ import qualified Data.Set as S
 import Data.Traversable (forM)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
-import Debug.Trace (traceShowM)
+import Debug.Trace (traceM, traceShowM)
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (gen)
 import Polysemy (Embed, Member, Members, Sem, embed, run)
@@ -124,6 +124,7 @@ elaborate' AST.Declaration {name, args, type'} = do
         )
     )
 elaborate' AST.Definition {name, args, maybeType, value} = do
+  traceShowM ("define", name)
   gcxt <- ask
   (args', cxt') <- desugarArguments gcxt [] args
   -- FIXME:
@@ -191,7 +192,7 @@ elaborate (AST.Source xs) = do
   foldM
     ( \xs y ->
         do
-          x <- runUnifyM xs emptyContext $ elaborate' y
+          x <- runUnifyM xs initialState $ elaborate' y
           pure $ xs <> x
     )
     mempty
