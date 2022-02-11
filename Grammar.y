@@ -52,6 +52,7 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
 
 %right ';'
 %right '->'
+%right lsym usym lsymQ usymQ
 %right infixOp
 %right forall
 
@@ -109,6 +110,7 @@ CommaSeperated :: { [Expression] }
 
 LocalName :: { LocalName }
           : lsym { $1 }
+          | usym { $1 }
 
 LocalName_ :: { LocalName }
           : LocalName { $1 }
@@ -184,16 +186,30 @@ Expression :: { Expression }
           | '\\' '{' Cases '}'                               { LambdaCase [] $3 } 
           | BinaryExpression                                 { $1 }
 
-          
-BinaryExpression :: { Expression }
-          : BinaryExpression '->' BinaryExpression    { Arrow $1 $3 }
-          | BinaryExpression infixOp BinaryExpression { Infix $1 (uncurry QName $2) $3 }
-          | Juxtaposition                             { $1 }
+Disk :: { Disk }
+        : Expression               { (Nothing, $1) }
+        | LocalName '=' Expression { (Just $1, $3) }
 
-Juxtaposition :: { Expression }
-          : Juxtaposition Atom                             { Application $1 ((Nothing, $2) :| []) }
-          | Juxtaposition '(' LocalName '=' Expression ')' { Application $1 ((Just $3, $5) :| []) }
-          | Atom                                           { $1 }
+Spine :: { NonEmpty Disk }
+        : Disk           { $1 :| [] }
+        | Disk ',' Spine { $1 :| toList $3 }
+
+BinaryExpression :: { Expression }
+          : BinaryExpression '->' BinaryExpression  { Arrow $1 $3 }
+          -- FIXME: use Identifier
+          | BinaryExpression lsym BinaryExpression  { Infix $1 (QName [] $2) $3 }
+          | BinaryExpression usym BinaryExpression  { Infix $1 (QName [] $2) $3 }
+          | BinaryExpression lsymQ BinaryExpression { Infix $1 (uncurry QName $2) $3 }
+          | BinaryExpression usymQ BinaryExpression { Infix $1 (uncurry QName $2) $3 }
+          | Atom '(' Spine ')'                      { Application $1 $3 }
+          | Atom                                    { $1 }
+
+Identifier :: { QName }
+          : lsym  { QName [] $1 }
+          | usym  { QName [] $1 }
+          | lsymQ { uncurry QName $1 }
+          | usymQ { uncurry QName $1 }
+        
 
 Atom :: { Expression }
           : '(' Expression ')'                    { Parenthesized $2 }
