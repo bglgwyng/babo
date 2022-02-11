@@ -6,7 +6,6 @@ module Core.Unification
     subst,
     substMV,
     manySubst,
-    substFV,
     Constraint (..),
     Subst (..),
     unify,
@@ -19,6 +18,7 @@ module Core.Unification
     applyApTelescope,
     reduce,
     initialState,
+    (|-),
     (?:),
     (?=),
   )
@@ -30,8 +30,9 @@ import Control.Applicative ((<|>))
 import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
 import Control.Monad (forM, join, unless, void, when, (>=>))
 import Control.Monad.Extra (whenM)
+import Core.Constraint
 import Core.Term as T
-  ( Argument (Argument),
+  ( Argument (..),
     InductiveType (..),
     Pattern (..),
     Term (..),
@@ -113,19 +114,9 @@ substMV new i t
     instantiate (Lam _ body) (x : xs) = instantiate (subst x 0 body) xs
     instantiate new xs = applyApTelescope new xs
 substMV new i t = case t of
-  Free type' j -> Free (substMV new i type') j
   Ap l r -> substMV new i l `Ap` substMV new i r
   Lam arg body -> Lam (substMV new i arg) (substMV (raise 1 new) i body)
   Pi arg body -> Pi (substMV new i arg) (substMV (raise 1 new) i body)
-  _ -> t
-
--- | Substitute a term for all free variable with a given identifier.
-substFV :: Term -> Id -> Term -> Term
-substFV new i t = case t of
-  Free _ j | i == j -> new
-  Ap l r -> substFV new i l `Ap` substFV new i r
-  Lam arg body -> Lam (substFV new i arg) (substFV (raise 1 new) i body)
-  Pi arg body -> Pi (substFV new i arg) (substFV (raise 1 new) i body)
   _ -> t
 
 -- | Gather all the metavariables in a term into a set.
@@ -139,18 +130,18 @@ metavars t = case t of
 
 -- | Returns @True@ if a term has no freeh variables and is therefore a
 -- valid candidate for a solution to a metavariable.
-isClosed :: Term -> Bool
-isClosed t =
-  case t of
-    Free {} -> False
-    Ap l r -> isClosed l && isClosed r
-    Lam arg body -> isClosed arg && isClosed body
-    Pi arg body -> isClosed arg && isClosed body
-    Case x _ alts -> isClosed x && all (isClosed . snd) alts
+isClosed :: Level -> Term -> Bool
+isClosed level =
+  \case
+    Local i -> i < level
+    Ap l r -> isClosed' l && isClosed' r
+    Lam arg body -> isClosed' arg && isClosed (level + 1) body
+    Pi arg body -> isClosed' arg && isClosed (level + 1) body
+    -- Case x _ alts -> isClosed' x && all (isClosed' . snd) alts
+    Case {} -> error "not implemented"
     _ -> True
-
-introFree :: Members Effects r => Term -> Sem r Term
-introFree type' = Free type' <$> gen
+  where
+    isClosed' = isClosed level
 
 resolveConstraint :: Members Effects r => Constraint -> Sem r ()
 resolveConstraint x = modify (\state@UnifyState {constraints} -> state {constraints = S.delete x constraints})
@@ -166,7 +157,7 @@ occurs x = go
       _ -> False
 
 emit :: Members Effects r => Constraint -> Sem r ()
-emit x = do
+emit c@(Constraint cxt x) = do
   state@UnifyState {metas, constraints, solutions} <- get
   let emitSolutions :: Members Effects r => Id -> Term -> Sem r ()
       emitSolutions k v = do
@@ -176,18 +167,18 @@ emit x = do
               constraints =
                 S.map
                   ( \case
-                      Equal t1 t2 -> Equal (substMV v k t1) (substMV v k t2)
-                      TypeOf t1 t2 -> TypeOf (substMV v k t1) (substMV v k t2)
+                      Constraint cxt (Equal t1 t2) -> cxt |- Equal (substMV v k t1) (substMV v k t2)
+                      Constraint cxt (TypeOf t1 t2) -> cxt |- TypeOf (substMV v k t1) (substMV v k t2)
                   )
                   constraints,
               solutions = M.insert k v (substMV v k <$> solutions)
             }
-      shouldBeFree :: Term -> Maybe (Term, Id)
-      shouldBeFree (Free type' i) = Just (type', i)
+      shouldBeFree :: Term -> Maybe (Term, Index)
+      shouldBeFree (Local i) = Just (cxt !! i, i)
       shouldBeFree _ = Nothing
       freevars :: Term -> [Id]
       freevars t = case t of
-        Free _ i -> [i]
+        Local i -> [i]
         Ap l r -> freevars l <> freevars r
         Lam arg body -> freevars arg <> freevars body
         Pi arg body -> freevars arg <> freevars body
@@ -195,48 +186,39 @@ emit x = do
         _ -> []
       -- pattern unification
       solve :: Term -> Term -> Maybe (Id, Term)
-      solve x y
-        | (m@(Meta i), args) <- peelApTelescope x,
-          not $ occurs m y,
-          Just frees <- traverse shouldBeFree args,
-          let frees' = S.fromList (snd <$> frees),
-          length frees == length frees',
-          all (`S.member` frees') (freevars y),
-          -- TODO: check if there are no other free vars in term
-          Just argTypes <-
-            sequenceA $
-              ( \(substs, (y, _)) ->
-                  if all (`S.member` S.fromList (snd <$> substs)) (freevars y)
-                    then Just $ foldr (uncurry $ substFV . Local) y $ zip [0 ..] $ snd <$> reverse substs
-                    else Nothing
-              )
-                <$> withPrevious frees,
-          let body = foldr (uncurry $ substFV . Local) y $ zip [0 ..] $ snd <$> reverse frees =
-          pure (i, foldr T.Lam body argTypes)
+      solve lhs rhs
+        | (m@(Meta i), spine) <- peelApTelescope lhs,
+          not $ occurs m rhs,
+          Just frees <- traverse shouldBeFree spine,
+          let renamings = M.fromList $ zip (reverse (snd <$> frees)) [0 ..],
+          length frees == length renamings,
+          Just body <- rename renamings rhs =
+          -- TODO: check if the types of arguments are well formed
+          pure (i, foldr T.Lam body $ fst <$> frees)
         where
-          withPrevious :: [a] -> [([a], a)]
-          withPrevious = go []
+          rename :: M.Map Id Id -> Term -> Maybe Term
+          rename = go 0
             where
-              go _ [] = []
-              go ys (x : xs) = (ys, x) : go (x : ys) xs
+              go :: Int -> M.Map Id Id -> Term -> Maybe Term
+              go level map t@(Local i)
+                | level > i = pure t
+                | otherwise = Local . (level +) <$> M.lookup (i - level) map
+              go level map (Ap l r) = Ap <$> go level map l <*> go level map r
+              go level map (Lam arg body) = Lam <$> go level map arg <*> go (level + 1) map body
+              go level map (Pi arg body) = Pi <$> go level map arg <*> go (level + 1) map body
+              go level map (Case x _ branches) = undefined
+              go _ _ t = pure t
       solve x y = Nothing
   case x of
     Equal x y | x == y -> pure ()
     Equal x y | Just (i, v) <- solve x y -> emitSolutions i v
     Equal y x | Just (i, v) <- solve x y -> emitSolutions i v
-    Equal y@(Meta i) x | isClosed x && not (occurs y x) ->
-      case M.lookup i solutions of
-        Just y -> emit $ x ?= y
-        Nothing -> emitSolutions i x
-    Equal x y@(Meta i) | isClosed x && not (occurs y x) ->
-      case M.lookup i solutions of
-        Just y -> emit $ x ?= y
-        Nothing -> emitSolutions i x
-    TypeOf (Meta i) x ->
+    -- FIXME:
+    TypeOf (Meta i) x | isClosed 0 x ->
       case M.lookup i metas of
-        Just y -> emit $ x ?= y
+        Just y -> emit $ [] |- x ?= y
         Nothing -> put state {metas = M.insert i x metas}
-    x -> modify (\state@UnifyState {constraints} -> state {constraints = S.insert x constraints})
+    x -> modify (\state@UnifyState {constraints} -> state {constraints = S.insert c constraints})
 
 -- | Implement reduction for the language. Given a term, normalize it.
 -- This boils down mainly to applying lambdas to their arguments and all
@@ -266,7 +248,7 @@ reduce globals unfold = go
         let x' = peelApTelescope (go x)
         case x' of
           (Global constructor, spine) ->
-            let Just (_, body) = find (\(Constructor name', _) -> name' == name constructor) branches
+            let Just (_, body) = find (\(Constructor name', _) -> name' == Common.name constructor) branches
              in go $ foldr (`subst` 0) body spine
           _ -> y
       x -> x
@@ -294,37 +276,17 @@ applyApTelescope = foldl' Ap
 
 type Effects = '[Gen, Error ElaborationError, State UnifyState, Reader GlobalContext]
 
-data Constraint = Equal Term Term | TypeOf Term Term deriving (Eq, Ord)
-
-infix 2 ?=
-
-(?=) :: Term -> Term -> Constraint
-(?=) = Equal
-
-infix 2 ?:
-
-(?:) :: Term -> Term -> Constraint
-(?:) = TypeOf
-
-instance Pretty Constraint where
-  pretty (Equal x y) = pretty (show x) <+> pretty "=" <+> pretty (show y)
-  pretty (TypeOf x y) = pretty (show x) <+> pretty ":" <+> pretty (show y)
-
-instance Show Constraint where
-  show = renderString . layoutPretty defaultLayoutOptions . pretty
-
-typeOf :: Members Effects r => Term -> Sem r Term
-typeOf t = do
+typeOf :: Members Effects r => Context -> Term -> Sem r Term
+typeOf cxt t = do
   globals <- ask
   state@UnifyState {metas, constraints} <- get
   case t of
-    Local i -> error "impossible"
-    Free type' _ -> pure type'
+    Local i -> pure $ raise (i + 1) $ cxt !! i
     Meta i ->
       maybe
         ( do
             meta <- Meta <$> gen
-            emit $ t ?: meta
+            emit $ cxt |- t ?: meta
             pure meta
         )
         pure
@@ -336,36 +298,23 @@ typeOf t = do
         $ M.lookup i globals
     Type -> pure Type
     Ap l r -> do
-      lType <- typeOf l
-      traceShowM ("ap", t, l)
+      lType <- typeOf' l
       if
           | Pi from to <- lType -> do
-            emit $ r ?: from
+            emit $ cxt |- r ?: from
             pure (subst r 0 to)
-          | (Meta _, _) <- peelApTelescope lType -> do
-            argMeta <- Meta <$> gen
-            emit $ argMeta ?: Type
-            bodyMeta <- Meta <$> gen
-            emit $ bodyMeta ?: Type
-
-            emit $ lType ?= Pi argMeta bodyMeta
-            emit $ r ?: argMeta
-            pure bodyMeta
           | otherwise -> throw ApplyToNonFunction
     Lam arg body -> do
-      emit $ arg ?: Type
-      free <- introFree arg
-      bodyType <- typeOf (subst free 0 body)
-      emit $ bodyType ?: Type
-      let Free _ k = free
-      pure $ Pi arg (substFV (Local 0) k bodyType)
+      emit $ cxt |- arg ?: Type
+      bodyType <- typeOf (arg : cxt) body
+      emit $ arg : cxt |- bodyType ?: Type
+      pure $ Pi arg bodyType
     Pi from to -> do
-      free <- introFree from
-      emit $ from ?: Type
-      emit $ subst free 0 to ?: Type
+      emit $ cxt |- from ?: Type
+      emit $ from : cxt |- to ?: Type
       pure Type
     Case x (Just ind) cases -> do
-      xType <- typeOf x
+      xType <- typeOf' x
       let InductiveType {qname = indName, params, indices, variants} = ind
           QName {namespace} = indName
       -- TODO: is reduce necessary?
@@ -379,10 +328,10 @@ typeOf t = do
           paramMetas <- forM params (const $ Meta <$> gen)
           indexMetas <- forM indices (const $ Meta <$> gen)
           let spine = paramMetas <> indexMetas
-          pure (spine, S.singleton (xType ?= applyApTelescope (Global indName) spine))
+          pure (spine, S.singleton (cxt |- xType ?= applyApTelescope (Global indName) spine))
       mapM_ emit (toList cs'')
       toTypes <-
-        forM
+        forM_
           cases
           ( \(Constructor name, body) -> do
               let Just (_, (args, _)) = find (\(name', _) -> name' == name) variants
@@ -392,19 +341,19 @@ typeOf t = do
                         foldr (uncurry subst) (T.type' arg) (second (+ i) <$> params')
                     )
                       <$> zip [0 ..] args
-              frees <- forM argTypes introFree
               let body' =
                     foldr
-                      -- (\(i, v) -> subst (Free (level + length args + length params) v) i)
                       (\(i, v) -> subst v i)
                       body
-                      (zip [0 ..] (reverse frees))
-              typeOf body'
+                      (zip [0 ..] (reverse undefined))
+              typeOf' body'
           )
-      let (toType : toTypes') = toTypes
-      forM_ toTypes' $ emit . (toType ?=)
+      let (toType : toTypes') = undefined
+      forM_ toTypes' $ emit . (cxt |-) . (toType ?=)
       pure toType
     Case x _ cases -> error "not implemented"
+  where
+    typeOf' = typeOf cxt
 
 -- | Given a constraint, produce a collection of equivalent but
 -- simpler constraints. Any solution for the returned set of
@@ -413,21 +362,19 @@ simplify :: Members Effects r => Constraint -> Sem r ()
 simplify e = resolveConstraint e *> simplify' e
   where
     simplify' :: Members Effects r => Constraint -> Sem r ()
-    simplify' e@(TypeOf (Lam argType1 type') (Pi argType2 bodyType)) = do
+    simplify' e@(Constraint cxt (TypeOf (Lam argType1 type') (Pi argType2 bodyType))) = do
       globals <- ask @GlobalContext
-      emit $ argType1 ?= argType2
-      free <- introFree argType1
-      emit $ subst free 0 type' ?: subst free 0 bodyType
-    simplify' e@(TypeOf t1 t2) = do
+      emit $ cxt |- argType1 ?= argType2
+      emit $ argType1 : cxt |- type' ?: bodyType
+    simplify' e@(Constraint cxt (TypeOf t1 t2)) = do
       globals <- ask @GlobalContext
-      type' <- typeOf t1
-      emit $ type' ?= t2
-    simplify' e@(Equal t1 t2)
+      type' <- typeOf cxt t1
+      emit $ cxt |- type' ?= t2
+    simplify' e@(Constraint cxt (Equal t1 t2))
       | t1 == t2 && S.null (metavars t1) = void $ resolveConstraint e
       | otherwise = do
         globals <- ask
-        let irreducible Free {} = True
-            irreducible Type = True
+        let irreducible Type = True
             irreducible (Global qname) =
               case M.lookup qname globals of
                 Just Definition {} -> False
@@ -437,34 +384,25 @@ simplify e = resolveConstraint e *> simplify' e
         let t1' = reduce globals True t1
         let t2' = reduce globals True t2
         if
-            | t1' /= t1 -> simplify' (t1' ?= t2)
-            | t2' /= t2 -> simplify' (t1 ?= t2')
+            | t1' /= t1 -> simplify' (cxt |- t1' ?= t2)
+            | t2' /= t2 -> simplify' (cxt |- t1 ?= t2')
             | (x, spine1) <- peelApTelescope t1,
               (y, spine2) <- peelApTelescope t2,
               irreducible x && irreducible y -> do
               if x == y && length spine1 == length spine2
-                then do
-                  mapM_ simplify' (zipWith (?=) spine1 spine2)
+                then mapM_ (simplify' . (cxt |-)) (zipWith (?=) spine1 spine2)
                 else throw $ CannotUnify t1 t2
             | Lam arg1 body1 <- t1,
               Lam arg2 body2 <- t2 -> do
-              free <- introFree arg1
-              mapM_
-                emit
-                [ subst free 0 body1 ?= subst free 0 body2,
-                  arg1 ?= arg2
-                ]
+              emit $ cxt |- arg1 ?= arg2
+              emit $ arg1 : cxt |- body1 ?= body2
             | Pi arg1 body1 <- t1,
               Pi arg2 body2 <- t2 -> do
-              free <- introFree arg1
-              mapM_
-                emit
-                [ subst free 0 body1 ?= subst free 0 body2,
-                  arg1 ?= arg2
-                ]
+              emit $ cxt |- arg1 ?= arg2
+              emit $ arg1 : cxt |- body1 ?= body2
             | otherwise -> do
               if isStuck t1 || isStuck t2
-                then emit $ t1 ?= t2
+                then emit $ cxt |- t1 ?= t2
                 else throw $ CannotUnify t1 t2
 
 type Subst = M.Map Id Term
@@ -535,7 +473,7 @@ unifyAll constraints = do
   (subst, flexflex) <- unify constraints
   if null flexflex
     then pure $ manySubst subst
-    else throw UnresolvedMeta
+    else throw $ UnresolvedConstraints $ toList flexflex
 
 initialState :: UnifyState
 initialState =

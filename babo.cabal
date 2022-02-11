@@ -27,6 +27,7 @@ library
   exposed-modules:
       Common
       Context
+      Core.Constraint
       Core.Term
       Core.Unification
       Effect.ElaborationError

@@ -1,6 +1,7 @@
 module Effect.ElaborationError where
 
 import Common (QName (..))
+import Core.Constraint (Constraint)
 import qualified Core.Term as T
 
 data ElaborationError
@@ -10,5 +11,5 @@ data ElaborationError
   | ApplyToNonFunction
   | InvalidCase
   | CannotUnify T.Term T.Term
-  | UnresolvedMeta
+  | UnresolvedConstraints [Constraint]
   deriving (Show)

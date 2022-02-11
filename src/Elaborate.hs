@@ -24,7 +24,6 @@ import qualified Data.Set as S
 import Data.Traversable (forM)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
-import Debug.Trace (traceM, traceShowM)
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (gen)
 import Polysemy (Embed, Member, Members, Sem, embed, run)
@@ -112,8 +111,7 @@ elaborate' AST.Declaration {name, args, type'} = do
   -- FIXME:
   let (argBinds, argTypes) = unzipArgs args'
   type' <- foldr T.Pi `flip` argTypes <$> desugarExpression gcxt cxt' type'
-  resolve <- unifyAll $ S.singleton (type' ?: T.Type)
-  -- (type', _, _) <- solve (type' ?: T.Type)
+  resolve <- unifyAll $ S.singleton $ [] |- type' ?: T.Type
   pure
     ( M.singleton
         (QName [] name)
@@ -124,7 +122,6 @@ elaborate' AST.Declaration {name, args, type'} = do
         )
     )
 elaborate' AST.Definition {name, args, maybeType, value} = do
-  traceShowM ("define", name)
   gcxt <- ask
   (args', cxt') <- desugarArguments gcxt [] args
   -- FIXME:
@@ -135,7 +132,7 @@ elaborate' AST.Definition {name, args, maybeType, value} = do
   value' <-
     foldr T.Lam `flip` argTypes
       <$> desugarExpression gcxt cxt' value
-  resolve <- unifyAll $ S.singleton (value' ?: type')
+  resolve <- unifyAll $ S.singleton $ [] |- value' ?: type'
   pure
     ( M.singleton
         (QName [] name)
@@ -151,7 +148,7 @@ elaborate' (Eval x) = do
   metaId <- gen
   let meta = T.Meta metaId
   value <- desugarExpression gcxt mempty x
-  resolve <- unifyAll $ S.singleton (value ?: meta)
+  resolve <- unifyAll $ S.singleton $ [] |- value ?: meta
   let value' = reduce gcxt True $ resolve value
   trace ("%eval " <> show value <> " = " <> show value')
   pure mempty
@@ -160,7 +157,7 @@ elaborate' (AST.TypeOf x) = do
   metaId <- gen
   let meta = T.Meta metaId
   value <- desugarExpression gcxt mempty x
-  resolve <- unifyAll $ S.singleton (value ?: meta)
+  resolve <- unifyAll $ S.singleton ([] |- value ?: meta)
   trace ("%typeof " <> show (resolve value) <> " : " <> show (resolve meta))
   pure mempty
 elaborate' (CheckUnify x y) = do
@@ -168,7 +165,7 @@ elaborate' (CheckUnify x y) = do
   x <- desugarExpression gcxt mempty x
   y <- desugarExpression gcxt mempty y
   type' <- T.Meta <$> gen
-  (substs, _) <- unify $ S.singleton $ Equal x y
+  (substs, _) <- unify $ S.singleton $ [] |- x ?= y
   trace ("%check " <> show x <> " = " <> show y)
   forM_ (assocs substs) $
     trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta *** show)
@@ -177,7 +174,7 @@ elaborate' (CheckTypeOf value type') = do
   gcxt <- ask
   value <- desugarExpression gcxt mempty value
   type' <- desugarExpression gcxt mempty type'
-  (substs, _) <- unify (S.singleton $ U.TypeOf value type')
+  (substs, _) <- unify (S.singleton $ [] |- value ?: type')
   trace ("%check " <> show value <> " : " <> show type')
   forM_ (assocs substs) $
     trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta *** show)
