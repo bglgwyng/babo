@@ -11,7 +11,6 @@ module Core.Unification
     unify,
     unifyAll,
     runUnifyM,
-    -- driver,
     Effects,
     UnifyState (..),
     peelApTelescope,
@@ -25,19 +24,20 @@ module Core.Unification
 where
 
 import Common
-import Context as C (GlobalContext, Inhabitant (Definition), type', value)
+import Context (GlobalContext, Inhabitant (Definition), value)
+import qualified Context as C
 import Control.Applicative ((<|>))
 import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
 import Control.Monad (forM, join, unless, void, when, (>=>))
 import Control.Monad.Extra (whenM)
 import Core.Constraint
-import Core.Term as T
-  ( Argument (..),
+import Core.Term
+  ( Argument,
     InductiveType (..),
     Pattern (..),
     Term (..),
-    type',
   )
+import qualified Core.Term as T
 import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Functor (($>))
@@ -48,7 +48,7 @@ import Data.Maybe
 import Data.Set (difference)
 import qualified Data.Set as S
 import Data.Tuple (swap)
-import Debug.Trace
+import Debug.Trace (traceShow)
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen, runGen)
 import Polysemy (Embed (unEmbed), Member, Members, Sem, embed, runM)
@@ -70,7 +70,7 @@ raise :: Int -> Term -> Term
 raise = go 0
   where
     go lower i t = case t of
-      Local j -> if i > lower then Local (i + j) else Local j
+      Local j -> if j >= lower then Local (i + j) else Local j
       Ap l r -> go lower i l `Ap` go lower i r
       Lam arg body -> Lam (go lower i arg) (go (lower + 1) i body)
       Pi arg body -> Pi (go lower i arg) (go (lower + 1) i body)
@@ -128,24 +128,6 @@ metavars t = case t of
   Pi arg body -> metavars arg <> metavars body
   _ -> S.empty
 
--- | Returns @True@ if a term has no freeh variables and is therefore a
--- valid candidate for a solution to a metavariable.
-isClosed :: Level -> Term -> Bool
-isClosed level =
-  \case
-    Local i -> i < level
-    Ap l r -> isClosed' l && isClosed' r
-    Lam arg body -> isClosed' arg && isClosed (level + 1) body
-    Pi arg body -> isClosed' arg && isClosed (level + 1) body
-    -- Case x _ alts -> isClosed' x && all (isClosed' . snd) alts
-    Case {} -> error "not implemented"
-    _ -> True
-  where
-    isClosed' = isClosed level
-
-resolveConstraint :: Members Effects r => Constraint -> Sem r ()
-resolveConstraint x = modify (\state@UnifyState {constraints} -> state {constraints = S.delete x constraints})
-
 occurs :: Term -> Term -> Bool
 occurs x = go
   where
@@ -156,22 +138,50 @@ occurs x = go
       Pi arg body -> go arg || go body
       _ -> False
 
+rename :: M.Map Id Id -> Term -> Maybe Term
+rename = go 0
+  where
+    go :: Int -> M.Map Id Id -> Term -> Maybe Term
+    go level map t@(Local i)
+      | level > i = pure t
+      | otherwise = Local . (level +) <$> M.lookup (i - level) map
+    go level map (Ap l r) = Ap <$> go level map l <*> go level map r
+    go level map (Lam arg body) = Lam <$> go level map arg <*> go (level + 1) map body
+    go level map (Pi arg body) = Pi <$> go level map arg <*> go (level + 1) map body
+    go level map (Case x _ branches) = undefined
+    go _ _ t = pure t
+
+resolve :: Members Effects r => Id -> Sem r ()
+resolve k = modify (\state@UnifyState {constraints} -> state {constraints = M.delete k constraints})
+
 emit :: Members Effects r => Constraint -> Sem r ()
 emit c@(Constraint cxt x) = do
-  state@UnifyState {metas, constraints, solutions} <- get
+  state@UnifyState {constraints, metas} <- get
   let emitSolutions :: Members Effects r => Id -> Term -> Sem r ()
       emitSolutions k v = do
+        type' <- case M.lookup k metas of
+          Just (Unsolved t) -> pure t
+          -- FIXME:
+          Just (Solved x t) -> emit ([] |- v ?= x) $> t
+          Nothing -> typeOf [] v
         put
           state
-            { metas = substMV v k <$> metas,
-              constraints =
-                S.map
-                  ( \case
-                      Constraint cxt (Equal t1 t2) -> cxt |- Equal (substMV v k t1) (substMV v k t2)
-                      Constraint cxt (TypeOf t1 t2) -> cxt |- TypeOf (substMV v k t1) (substMV v k t2)
+            { constraints =
+                ( \case
+                    Constraint cxt (Equal t1 t2) -> substMV v k <$> cxt |- substMV v k t1 ?= substMV v k t2
+                    Constraint cxt (TypeOf t1 t2) -> substMV v k <$> cxt |- substMV v k t1 ?: substMV v k t2
+                )
+                  <$> constraints,
+              metas =
+                M.insert
+                  k
+                  (Solved v type')
+                  ( ( \case
+                        Solved v' t -> Solved (substMV v k v') (substMV v k t)
+                        Unsolved t -> Unsolved (substMV v k t)
+                    )
+                      <$> metas
                   )
-                  constraints,
-              solutions = M.insert k v (substMV v k <$> solutions)
             }
       shouldBeFree :: Term -> Maybe (Term, Index)
       shouldBeFree (Local i) = Just (cxt !! i, i)
@@ -185,46 +195,41 @@ emit c@(Constraint cxt x) = do
         Case x _ branches -> undefined
         _ -> []
       -- pattern unification
-      solve :: Term -> Term -> Maybe (Id, Term)
-      solve lhs rhs
+      solve :: (Term -> Term -> Term) -> Term -> Term -> Maybe (Id, Term)
+      solve abstract lhs rhs
         | (m@(Meta i), spine) <- peelApTelescope lhs,
           not $ occurs m rhs,
           Just frees <- traverse shouldBeFree spine,
+          -- FIXME:
+          all not $ occurs m . fst <$> frees,
           let renamings = M.fromList $ zip (reverse (snd <$> frees)) [0 ..],
           length frees == length renamings,
           Just body <- rename renamings rhs =
           -- TODO: check if the types of arguments are well formed
-          pure (i, foldr T.Lam body $ fst <$> frees)
-        where
-          rename :: M.Map Id Id -> Term -> Maybe Term
-          rename = go 0
-            where
-              go :: Int -> M.Map Id Id -> Term -> Maybe Term
-              go level map t@(Local i)
-                | level > i = pure t
-                | otherwise = Local . (level +) <$> M.lookup (i - level) map
-              go level map (Ap l r) = Ap <$> go level map l <*> go level map r
-              go level map (Lam arg body) = Lam <$> go level map arg <*> go (level + 1) map body
-              go level map (Pi arg body) = Pi <$> go level map arg <*> go (level + 1) map body
-              go level map (Case x _ branches) = undefined
-              go _ _ t = pure t
-      solve x y = Nothing
+          pure (i, foldr abstract body $ fst <$> frees)
+      solve _ x y = Nothing
   case x of
     Equal x y | x == y -> pure ()
-    Equal x y | Just (i, v) <- solve x y -> emitSolutions i v
-    Equal y x | Just (i, v) <- solve x y -> emitSolutions i v
-    -- FIXME:
-    TypeOf (Meta i) x | isClosed 0 x ->
+    Equal x y | Just (i, v) <- solve T.Lam x y -> emitSolutions i v
+    Equal y x | Just (i, v) <- solve T.Lam x y -> emitSolutions i v
+    TypeOf x y | Just (i, v) <- solve T.Pi x y ->
       case M.lookup i metas of
-        Just y -> emit $ [] |- x ?= y
-        Nothing -> put state {metas = M.insert i x metas}
-    x -> modify (\state@UnifyState {constraints} -> state {constraints = S.insert c constraints})
+        Just (Solved _ z) -> emit $ [] |- v ?= z
+        Just (Unsolved z) -> emit $ [] |- v ?= z
+        Nothing -> put state {metas = M.insert i (Unsolved v) metas}
+    x -> do
+      k <- gen
+      modify (\state@UnifyState {constraints} -> state {constraints = M.insert k c constraints})
+
+data Meta = Solved {value :: Term, type' :: Term} | Unsolved {type' :: Term} deriving (Ord, Eq, Show)
+
+type MetaContext = M.Map Id Meta
 
 -- | Implement reduction for the language. Given a term, normalize it.
 -- This boils down mainly to applying lambdas to their arguments and all
 -- the appropriate congruence rules.
-reduce :: GlobalContext -> Bool -> Term -> Term
-reduce globals unfold = go
+reduce :: GlobalContext -> MetaContext -> Bool -> Term -> Term
+reduce globals metas unfold = go
   where
     go :: Term -> Term
     go = \case
@@ -235,6 +240,10 @@ reduce globals unfold = go
           l -> Ap l' (go r)
       Lam arg body -> Lam (go arg) (go body)
       Pi arg body -> Pi (go arg) (go body)
+      x@(Meta i) ->
+        case M.lookup i metas of
+          Just (Solved t _) -> go t
+          _ -> x
       x@(Global qname) ->
         fromJust $
           ( \case
@@ -289,7 +298,7 @@ typeOf cxt t = do
             emit $ cxt |- t ?: meta
             pure meta
         )
-        pure
+        (pure . type')
         $ M.lookup i metas
     Global i ->
       maybe
@@ -298,12 +307,20 @@ typeOf cxt t = do
         $ M.lookup i globals
     Type -> pure Type
     Ap l r -> do
-      lType <- typeOf' l
+      lType <- reduce globals metas True <$> typeOf' l
       if
           | Pi from to <- lType -> do
             emit $ cxt |- r ?: from
             pure (subst r 0 to)
-          | otherwise -> throw ApplyToNonFunction
+          | otherwise -> do
+            from <- (`applyApTelescope` (Local <$> reverse [0 .. length cxt - 1])) . Meta <$> gen
+            -- FIXME: If `reverse` is ommited, inference fails. Find out why.
+            to <- (`applyApTelescope` (Local <$> reverse [0 .. length cxt])) . Meta <$> gen
+            emit $ cxt |- Pi from to ?= lType
+            emit $ cxt |- from ?: Type
+            emit $ cxt |- r ?: from
+            emit $ (from : cxt) |- to ?: Type
+            pure (subst r 0 to)
     Lam arg body -> do
       emit $ cxt |- arg ?: Type
       bodyType <- typeOf (arg : cxt) body
@@ -318,7 +335,7 @@ typeOf cxt t = do
       let InductiveType {qname = indName, params, indices, variants} = ind
           QName {namespace} = indName
       -- TODO: is reduce necessary?
-      let y = reduce globals True xType
+      let y = reduce globals metas True xType
       (spine, cs'') <- case peelApTelescope y of
         (Global name, spine)
           | name == indName -> pure (spine, mempty)
@@ -355,40 +372,46 @@ typeOf cxt t = do
   where
     typeOf' = typeOf cxt
 
+irreducible :: GlobalContext -> Term -> Bool
+irreducible globals Type = True
+irreducible globals Local {} = True
+irreducible globals (Global qname) =
+  case M.lookup qname globals of
+    Just Definition {} -> False
+    Just _ -> True
+    Nothing -> error "impossible"
+irreducible _ _ = False
+
 -- | Given a constraint, produce a collection of equivalent but
 -- simpler constraints. Any solution for the returned set of
 -- constraints should be a solution for the original constraint.
-simplify :: Members Effects r => Constraint -> Sem r ()
-simplify e = resolveConstraint e *> simplify' e
+simplify :: Members Effects r => Id -> Constraint -> Sem r ()
+simplify k e = resolve k *> simplify' e
   where
     simplify' :: Members Effects r => Constraint -> Sem r ()
     simplify' e@(Constraint cxt (TypeOf (Lam argType1 type') (Pi argType2 bodyType))) = do
       globals <- ask @GlobalContext
       emit $ cxt |- argType1 ?= argType2
+      emit $ cxt |- argType1 ?: Type
       emit $ argType1 : cxt |- type' ?: bodyType
     simplify' e@(Constraint cxt (TypeOf t1 t2)) = do
       globals <- ask @GlobalContext
+      UnifyState {metas} <- get @UnifyState
       type' <- typeOf cxt t1
       emit $ cxt |- type' ?= t2
     simplify' e@(Constraint cxt (Equal t1 t2))
-      | t1 == t2 && S.null (metavars t1) = void $ resolveConstraint e
+      | t1 == t2 && S.null (metavars t1) = void $ resolve k
       | otherwise = do
         globals <- ask
-        let irreducible Type = True
-            irreducible (Global qname) =
-              case M.lookup qname globals of
-                Just Definition {} -> False
-                Just _ -> True
-                Nothing -> undefined
-            irreducible _ = False
-        let t1' = reduce globals True t1
-        let t2' = reduce globals True t2
+        UnifyState {metas} <- get @UnifyState
+        let t1' = reduce globals metas True t1
+        let t2' = reduce globals metas True t2
         if
             | t1' /= t1 -> simplify' (cxt |- t1' ?= t2)
             | t2' /= t2 -> simplify' (cxt |- t1 ?= t2')
             | (x, spine1) <- peelApTelescope t1,
               (y, spine2) <- peelApTelescope t2,
-              irreducible x && irreducible y -> do
+              irreducible globals x && irreducible globals y -> do
               if x == y && length spine1 == length spine2
                 then mapM_ (simplify' . (cxt |-)) (zipWith (?=) spine1 spine2)
                 else throw $ CannotUnify t1 t2
@@ -402,7 +425,7 @@ simplify e = resolveConstraint e *> simplify' e
               emit $ arg1 : cxt |- body1 ?= body2
             | otherwise -> do
               if isStuck t1 || isStuck t2
-                then emit $ cxt |- t1 ?= t2
+                then modify @UnifyState (\s -> s {constraints = M.insert k e (constraints s)})
                 else throw $ CannotUnify t1 t2
 
 type Subst = M.Map Id Term
@@ -418,9 +441,8 @@ s1 `union` s2 = M.union (manySubst s1 <$> s2) s1
 -- constraints, produce a solution substution and the resulting set of
 -- flex-flex equations.
 data UnifyState = UnifyState
-  { metas :: M.Map Id Term,
-    constraints :: S.Set Constraint,
-    solutions :: M.Map Id Term
+  { constraints :: M.Map Id Constraint,
+    metas :: MetaContext
   }
   deriving (Eq)
 
@@ -428,27 +450,30 @@ instance Show UnifyState where
   show = renderString . layoutPretty defaultLayoutOptions . pretty
 
 instance Pretty UnifyState where
-  pretty UnifyState {metas, constraints, solutions} =
+  pretty UnifyState {constraints, metas} =
     unless
-      (null metas)
-      ( pretty "metas:"
+      (null constraints)
+      ( pretty
+          "constraints:"
           <> line
-          <> vsep ((\(k, v) -> indent 2 $ pretty k <> pretty "? : " <> pretty (show v)) <$> assocs metas)
+          <> vsep (indent 2 . pretty <$> M.toList constraints)
           <> line
       )
       <> unless
-        (null constraints)
-        ( pretty
-            "constraints:"
+        (null metas)
+        ( pretty "metas:"
             <> line
-            <> vsep (indent 2 . pretty <$> S.toList constraints)
-            <> line
-        )
-      <> unless
-        (null solutions)
-        ( pretty "solutions:"
-            <> line
-            <> vsep ((\(k, v) -> indent 2 $ pretty k <> pretty "? = " <> pretty (show v)) <$> assocs solutions)
+            <> vsep
+              ( ( \(k, v) ->
+                    indent 2 $
+                      pretty k
+                        <> ( case v of
+                               Solved x _ -> pretty "? =" <+> pretty (show x)
+                               Unsolved t -> pretty "? :" <+> pretty (show t)
+                           )
+                )
+                  <$> assocs metas
+              )
         )
     where
       unless p m
@@ -457,14 +482,18 @@ instance Pretty UnifyState where
 
 unify :: Members Effects r => S.Set Constraint -> Sem r (Subst, S.Set Constraint)
 unify cs = do
-  modify \state -> state {constraints = cs}
+  cs' <- forM (toList cs) $ \x -> (,x) <$> gen
+  modify \state -> state {constraints = M.fromList cs'}
   unify'
-  (solutions &&& constraints) <$> get
+  ( (M.fromList . catMaybes . ((\case (k, Solved x _) -> Just (k, x); _ -> Nothing) <$>) . assocs . metas)
+      &&& S.fromList . toList . constraints
+    )
+    <$> get
 
 unify' :: Members Effects r => Sem r ()
 unify' = do
-  oldState@UnifyState {constraints} <- get
-  fold <$> forM (toList constraints) simplify
+  oldState@UnifyState {constraints = cs} <- get
+  forM_ (M.keys cs) (\x -> get >>= (simplify x . fromJust . M.lookup x) . constraints)
   state <- get
   unless (oldState == state) unify'
 
@@ -478,9 +507,8 @@ unifyAll constraints = do
 initialState :: UnifyState
 initialState =
   UnifyState
-    { metas = M.empty,
-      constraints = S.empty,
-      solutions = M.empty
+    { constraints = M.empty,
+      metas = M.empty
     }
 
 runUnifyM :: GlobalContext -> UnifyState -> Sem (State UnifyState : Reader GlobalContext : Gen : r) a -> Sem r a

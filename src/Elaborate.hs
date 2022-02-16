@@ -149,7 +149,7 @@ elaborate' (Eval x) = do
   let meta = T.Meta metaId
   value <- desugarExpression gcxt mempty x
   resolve <- unifyAll $ S.singleton $ [] |- value ?: meta
-  let value' = reduce gcxt True $ resolve value
+  let value' = reduce gcxt mempty True $ resolve value
   trace ("%eval " <> show value <> " = " <> show value')
   pure mempty
 elaborate' (AST.TypeOf x) = do
