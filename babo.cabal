@@ -28,8 +28,10 @@ library
       Common
       Context
       Core.Constraint
+      Core.Meta
       Core.Term
       Core.Unification
+      Core.UnifyState
       Effect.ElaborationError
       Effect.Gen
       Elaborate
@@ -63,6 +65,7 @@ library
       TypeApplications
       TypeFamilies
       MultiWayIf
+      PatternSynonyms
   build-depends:
       array >=0.5.4
     , base >=4.7 && <5
@@ -103,6 +106,7 @@ executable babo-exe
       TypeApplications
       TypeFamilies
       MultiWayIf
+      PatternSynonyms
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -fplugin=Polysemy.Plugin
   build-depends:
       array >=0.5.4
@@ -146,6 +150,7 @@ test-suite babo-test
       TypeApplications
       TypeFamilies
       MultiWayIf
+      PatternSynonyms
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -fplugin=Polysemy.Plugin
   build-depends:
       array >=0.5.4

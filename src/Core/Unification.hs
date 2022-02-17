@@ -29,8 +29,9 @@ import qualified Context as C
 import Control.Applicative ((<|>))
 import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
 import Control.Monad (forM, join, unless, void, when, (>=>))
-import Control.Monad.Extra (whenM)
+import Control.Monad.Extra (unlessM, whenM)
 import Core.Constraint
+import Core.Meta
 import Core.Term
   ( Argument,
     InductiveType (..),
@@ -38,6 +39,7 @@ import Core.Term
     Term (..),
   )
 import qualified Core.Term as T
+import Core.UnifyState
 import Data.Either (partitionEithers)
 import Data.Foldable
 import Data.Functor (($>))
@@ -183,17 +185,12 @@ emit c@(Constraint cxt x) = do
                       <$> metas
                   )
             }
+        mapM_
+          (\(k, v) -> whenM (simplify v) $ resolve k)
+          (assocs constraints)
       shouldBeFree :: Term -> Maybe (Term, Index)
       shouldBeFree (Local i) = Just (cxt !! i, i)
       shouldBeFree _ = Nothing
-      freevars :: Term -> [Id]
-      freevars t = case t of
-        Local i -> [i]
-        Ap l r -> freevars l <> freevars r
-        Lam arg body -> freevars arg <> freevars body
-        Pi arg body -> freevars arg <> freevars body
-        Case x _ branches -> undefined
-        _ -> []
       -- pattern unification
       solve :: (Term -> Term -> Term) -> Term -> Term -> Maybe (Id, Term)
       solve abstract lhs rhs
@@ -219,11 +216,8 @@ emit c@(Constraint cxt x) = do
         Nothing -> put state {metas = M.insert i (Unsolved v) metas}
     x -> do
       k <- gen
-      modify (\state@UnifyState {constraints} -> state {constraints = M.insert k c constraints})
-
-data Meta = Solved {value :: Term, type' :: Term} | Unsolved {type' :: Term} deriving (Ord, Eq, Show)
-
-type MetaContext = M.Map Id Meta
+      unlessM (simplify c) $
+        modify (\state@UnifyState {constraints} -> state {constraints = M.insert k c constraints})
 
 -- | Implement reduction for the language. Given a term, normalize it.
 -- This boils down mainly to applying lambdas to their arguments and all
@@ -385,48 +379,49 @@ irreducible _ _ = False
 -- | Given a constraint, produce a collection of equivalent but
 -- simpler constraints. Any solution for the returned set of
 -- constraints should be a solution for the original constraint.
-simplify :: Members Effects r => Id -> Constraint -> Sem r ()
-simplify k e = resolve k *> simplify' e
-  where
-    simplify' :: Members Effects r => Constraint -> Sem r ()
-    simplify' e@(Constraint cxt (TypeOf (Lam argType1 type') (Pi argType2 bodyType))) = do
-      globals <- ask @GlobalContext
-      emit $ cxt |- argType1 ?= argType2
-      emit $ cxt |- argType1 ?: Type
-      emit $ argType1 : cxt |- type' ?: bodyType
-    simplify' e@(Constraint cxt (TypeOf t1 t2)) = do
-      globals <- ask @GlobalContext
-      UnifyState {metas} <- get @UnifyState
-      type' <- typeOf cxt t1
-      emit $ cxt |- type' ?= t2
-    simplify' e@(Constraint cxt (Equal t1 t2))
-      | t1 == t2 && S.null (metavars t1) = void $ resolve k
-      | otherwise = do
-        globals <- ask
-        UnifyState {metas} <- get @UnifyState
-        let t1' = reduce globals metas True t1
-        let t2' = reduce globals metas True t2
-        if
-            | t1' /= t1 -> simplify' (cxt |- t1' ?= t2)
-            | t2' /= t2 -> simplify' (cxt |- t1 ?= t2')
-            | (x, spine1) <- peelApTelescope t1,
-              (y, spine2) <- peelApTelescope t2,
-              irreducible globals x && irreducible globals y -> do
-              if x == y && length spine1 == length spine2
-                then mapM_ (simplify' . (cxt |-)) (zipWith (?=) spine1 spine2)
-                else throw $ CannotUnify t1 t2
-            | Lam arg1 body1 <- t1,
-              Lam arg2 body2 <- t2 -> do
-              emit $ cxt |- arg1 ?= arg2
-              emit $ arg1 : cxt |- body1 ?= body2
-            | Pi arg1 body1 <- t1,
-              Pi arg2 body2 <- t2 -> do
-              emit $ cxt |- arg1 ?= arg2
-              emit $ arg1 : cxt |- body1 ?= body2
-            | otherwise -> do
-              if isStuck t1 || isStuck t2
-                then modify @UnifyState (\s -> s {constraints = M.insert k e (constraints s)})
-                else throw $ CannotUnify t1 t2
+simplify :: Members Effects r => Constraint -> Sem r Bool
+simplify e@(Constraint cxt (TypeOf (Lam argType1 type') (Pi argType2 bodyType))) = do
+  globals <- ask @GlobalContext
+  emit $ cxt |- argType1 ?= argType2
+  emit $ cxt |- argType1 ?: Type
+  emit $ argType1 : cxt |- type' ?: bodyType
+  pure True
+simplify e@(Constraint cxt (TypeOf t1 t2)) = do
+  globals <- ask @GlobalContext
+  UnifyState {metas} <- get @UnifyState
+  type' <- typeOf cxt t1
+  emit $ cxt |- type' ?= t2
+  pure True
+simplify e@(Constraint cxt (Equal t1 t2))
+  | t1 == t2 = pure True
+  | otherwise = do
+    globals <- ask
+    UnifyState {metas} <- get @UnifyState
+    let t1' = reduce globals metas True t1
+    let t2' = reduce globals metas True t2
+    if
+        | t1' /= t1 -> simplify (cxt |- t1' ?= t2)
+        | t2' /= t2 -> simplify (cxt |- t1 ?= t2')
+        | (x, spine1) <- peelApTelescope t1,
+          (y, spine2) <- peelApTelescope t2,
+          irreducible globals x && irreducible globals y -> do
+          if x == y && length spine1 == length spine2
+            then mapM_ (simplify . (cxt |-)) (zipWith (?=) spine1 spine2) $> True
+            else throw $ CannotUnify t1 t2
+        | Lam arg1 body1 <- t1,
+          Lam arg2 body2 <- t2 -> do
+          emit $ cxt |- arg1 ?= arg2
+          emit $ arg1 : cxt |- body1 ?= body2
+          pure True
+        | Pi arg1 body1 <- t1,
+          Pi arg2 body2 <- t2 -> do
+          emit $ cxt |- arg1 ?= arg2
+          emit $ arg1 : cxt |- body1 ?= body2
+          pure True
+        | otherwise -> do
+          if isStuck t1 || isStuck t2
+            then pure False
+            else throw $ CannotUnify t1 t2
 
 type Subst = M.Map Id Term
 
@@ -440,62 +435,13 @@ s1 `union` s2 = M.union (manySubst s1 <$> s2) s1
 -- | The top level function, given a substitution and a set of
 -- constraints, produce a solution substution and the resulting set of
 -- flex-flex equations.
-data UnifyState = UnifyState
-  { constraints :: M.Map Id Constraint,
-    metas :: MetaContext
-  }
-  deriving (Eq)
-
-instance Show UnifyState where
-  show = renderString . layoutPretty defaultLayoutOptions . pretty
-
-instance Pretty UnifyState where
-  pretty UnifyState {constraints, metas} =
-    unless
-      (null constraints)
-      ( pretty
-          "constraints:"
-          <> line
-          <> vsep (indent 2 . pretty <$> M.toList constraints)
-          <> line
-      )
-      <> unless
-        (null metas)
-        ( pretty "metas:"
-            <> line
-            <> vsep
-              ( ( \(k, v) ->
-                    indent 2 $
-                      pretty k
-                        <> ( case v of
-                               Solved x _ -> pretty "? =" <+> pretty (show x)
-                               Unsolved t -> pretty "? :" <+> pretty (show t)
-                           )
-                )
-                  <$> assocs metas
-              )
-        )
-    where
-      unless p m
-        | p = mempty
-        | otherwise = m
-
 unify :: Members Effects r => S.Set Constraint -> Sem r (Subst, S.Set Constraint)
 unify cs = do
-  cs' <- forM (toList cs) $ \x -> (,x) <$> gen
-  modify \state -> state {constraints = M.fromList cs'}
-  unify'
+  mapM_ emit (toList cs)
   ( (M.fromList . catMaybes . ((\case (k, Solved x _) -> Just (k, x); _ -> Nothing) <$>) . assocs . metas)
       &&& S.fromList . toList . constraints
     )
     <$> get
-
-unify' :: Members Effects r => Sem r ()
-unify' = do
-  oldState@UnifyState {constraints = cs} <- get
-  forM_ (M.keys cs) (\x -> get >>= (simplify x . fromJust . M.lookup x) . constraints)
-  state <- get
-  unless (oldState == state) unify'
 
 unifyAll :: Members Effects r => S.Set Constraint -> Sem r (Term -> Term)
 unifyAll constraints = do
@@ -503,13 +449,6 @@ unifyAll constraints = do
   if null flexflex
     then pure $ manySubst subst
     else throw $ UnresolvedConstraints $ toList flexflex
-
-initialState :: UnifyState
-initialState =
-  UnifyState
-    { constraints = M.empty,
-      metas = M.empty
-    }
 
 runUnifyM :: GlobalContext -> UnifyState -> Sem (State UnifyState : Reader GlobalContext : Gen : r) a -> Sem r a
 runUnifyM globals state =
