@@ -89,6 +89,7 @@ Variants :: { [Variant] }
 
 ArgumentName :: { String }
           : lsym { $1 }
+          | qlsym { $1 }
           | usym { $1 }
 
 ArgumentNames : ArgumentName           { $1 :| [] }
