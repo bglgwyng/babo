@@ -9,7 +9,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (assocs, toList)
 import Data.Maybe (listToMaybe)
 import Data.Set (fromList)
-import Elaborate (elaborate)
+import Elaboration (elaborate)
 import Polysemy (embed, run, runM)
 import Polysemy.Error (runError)
 import Polysemy.IO

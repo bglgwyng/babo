@@ -34,7 +34,7 @@ library
       Core.UnifyState
       Effect.ElaborationError
       Effect.Gen
-      Elaborate
+      Elaboration
       Syntax.AST
       Syntax.Desugar
       Syntax.Grammar

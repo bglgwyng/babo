@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -fplugin=Polysemy.Plugin #-}
 
-module Elaborate where
+module Elaboration (elaborate) where
 
 import Common
 import Context (GlobalContext, Inhabitant (..), LocalContext)
