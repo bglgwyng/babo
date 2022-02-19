@@ -10,6 +10,7 @@ import Control.Monad (foldM)
 import Control.Monad.Extra (unlessM)
 import Control.Monad.Logic
 import Control.Monad.Trans (lift)
+import Core.Constraint
 import qualified Core.Term as T
 import Core.Unification
 import qualified Core.Unification as U
@@ -24,7 +25,6 @@ import Data.Traversable (forM)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
 import Effect.ElaborationError (ElaborationError (..))
-import Effect.Gen (gen)
 import Polysemy (Embed, Member, Members, Sem, embed, run)
 import Polysemy.Error (Error, throw)
 import Polysemy.Reader (Reader, ask, runReader)
@@ -32,16 +32,18 @@ import Polysemy.State (evalState, get, runState)
 import Polysemy.Trace (Trace, trace)
 import Syntax.AST
 import qualified Syntax.AST as AST
-import Syntax.Desugar (desugarArguments, desugarExpression, fillHole)
+import Syntax.Desugar (desugarArguments, desugarExpression, insertMeta)
 
-elaborate' :: Members (Trace ': Error ElaborationError ': U.Effects) r => AST.TopLevelStatement -> Sem r GlobalContext
+elaborate' ::
+  Members '[Trace, Error ElaborationError, UnifyEffect, Reader GlobalContext] r =>
+  AST.TopLevelStatement ->
+  Sem r GlobalContext
 elaborate' AST.DataDeclaration {name, args = params, maybeType, variants} = do
   gcxt <- ask
   (params', cxt') <- desugarArguments gcxt [] params
   let paramsArity = length params'
       (paramBinds, paramTypes) = unzipArgs params'
   type' <- foldr T.Pi `flip` paramTypes <$> maybe (pure T.Type) (desugarExpression gcxt []) maybeType
-  v <- gen
   -- FIXME:
   let namespace = []
       typeName = QName namespace name
@@ -109,7 +111,6 @@ elaborate' AST.Declaration {name, args, type'} = do
   -- FIXME:
   let (argBinds, argTypes) = unzipArgs args'
   type' <- foldr T.Pi `flip` argTypes <$> desugarExpression gcxt cxt' type'
-  metas <- metas <$> get
   emit $ [] |- type' ?: T.Type
   type' <- force False type'
   pure
@@ -131,7 +132,7 @@ elaborate' AST.Definition {name, args, maybeType, value} = do
       <$> desugarExpression gcxt cxt' value
   type' <-
     foldr T.Pi `flip` argTypes
-      <$> maybe (fillHole cxt') (desugarExpression gcxt cxt') maybeType
+      <$> maybe (insertMeta cxt') (desugarExpression gcxt cxt') maybeType
   emit $ [] |- value ?: type'
   value <- force False value
   type' <- force False type'
@@ -147,21 +148,17 @@ elaborate' AST.Definition {name, args, maybeType, value} = do
     )
 elaborate' (Eval x) = do
   gcxt <- ask
-  metaId <- gen
-  let meta = T.Meta metaId
+  meta <- genMeta 0
   value <- desugarExpression gcxt mempty x
   emit $ [] |- value ?: meta
-  metas <- metas <$> get
   value' <- force True value
   trace ("%eval " <> show value <> " = " <> show value')
   pure mempty
 elaborate' (AST.TypeOf x) = do
   gcxt <- ask
-  metaId <- gen
-  let meta = T.Meta metaId
+  meta <- genMeta 0
   value <- desugarExpression gcxt mempty x
   emit $ [] |- value ?: meta
-  metas <- metas <$> get
   value <- force False value
   type' <- force False meta
   trace ("%typeof " <> show value <> " : " <> show type')
@@ -170,10 +167,9 @@ elaborate' (CheckUnify x y) = do
   gcxt <- ask
   x <- desugarExpression gcxt mempty x
   y <- desugarExpression gcxt mempty y
-  type' <- T.Meta <$> gen
   emit $ [] |- x ?= y
   trace ("%check " <> show x <> " = " <> show y)
-  trace . show =<< get
+  trace . show =<< getState
   pure mempty
 elaborate' (CheckTypeOf value type') = do
   gcxt <- ask
@@ -181,7 +177,7 @@ elaborate' (CheckTypeOf value type') = do
   type' <- desugarExpression gcxt mempty type'
   emit $ [] |- value ?: type'
   trace ("%check " <> show value <> " : " <> show type')
-  trace . show =<< get
+  trace . show =<< getState
   pure mempty
 elaborate' _ = pure mempty
 
@@ -193,7 +189,7 @@ elaborate (AST.Source xs) = do
   foldM
     ( \xs y ->
         do
-          x <- runUnifyM xs initialState $ elaborate' y
+          x <- runReader xs . runUnifyM $ elaborate' y
           pure $ xs <> x
     )
     mempty

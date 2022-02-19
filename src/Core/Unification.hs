@@ -1,18 +1,6 @@
 {-# OPTIONS_GHC -fplugin=Polysemy.Plugin #-}
 
-module Core.Unification
-  ( Term (..),
-    Constraint (..),
-    emit,
-    runUnifyM,
-    allMetaSolved,
-    Effects,
-    force,
-    (|-),
-    (?:),
-    (?=),
-  )
-where
+module Core.Unification where
 
 import Common
 import Context (GlobalContext, Inhabitant (Definition), value)
@@ -50,18 +38,23 @@ import Data.Tuple (swap)
 import Debug.Trace (traceShow, traceShowM)
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen, runGen)
-import Polysemy (Embed (unEmbed), Member, Members, Sem, embed, runM)
+import Polysemy (Embed (unEmbed), Member, Members, Sem, embed, interpret, makeSem, runM, subsume, subsume_)
 import Polysemy.Embed (runEmbedded)
 import Polysemy.Error (Error, throw)
 import Polysemy.NonDet (NonDet, runNonDet)
 import Polysemy.Reader (Reader, ask, runReader)
 import Polysemy.State (State, evalState, execState, get, modify, put)
 
------------------------------------------------------------------
--------------- the actual unification code ----------------------
------------------------------------------------------------------
+type Effects = '[Error ElaborationError, Reader GlobalContext, State UnifyState, Gen]
 
-type Effects = '[Gen, Error ElaborationError, State UnifyState, Reader GlobalContext]
+data UnifyEffect m a where
+  Emit :: Constraint -> UnifyEffect m ()
+  Solve :: Id -> Term -> UnifyEffect m ()
+  Resolve :: Id -> UnifyEffect m ()
+  GetState :: UnifyEffect m UnifyState
+  GenMeta :: Level -> UnifyEffect m Term
+
+makeSem ''UnifyEffect
 
 rename :: M.Map Id Id -> Term -> Maybe Term
 rename = go 0
@@ -76,93 +69,12 @@ rename = go 0
     go level map (Case x _ branches) = undefined
     go _ _ t = pure t
 
-resolve :: Members Effects r => Id -> Sem r ()
-resolve k =
-  modify
-    ( \state@UnifyState {constraints} ->
-        state {constraints = M.delete k constraints}
-    )
-
-solve :: Members Effects r => Id -> Term -> Sem r ()
-solve k v = do
-  state@UnifyState {constraints, metas} <- get
-  type' <- case M.lookup k metas of
-    Just Unsolved {type'} -> pure type'
-    -- FIXME: make this case not happen
-    Just Solved {value, type'} -> emit ([] |- v ?= value) $> type'
-    Nothing -> typeOf [] v
-  put state {metas = M.insert k Solved {value = v, type'} metas}
-  mapM_
-    ( \(k, Constraint cxt v) ->
-        whenM
-          case v of
-            Equal x y -> do
-              x <- force True x
-              y <- force True y
-              simplify (cxt |- x ?= y)
-            HasType v t -> do
-              v <- force True v
-              t <- force True t
-              simplify (cxt |- v ?: t)
-          $ resolve k
-    )
-    (assocs constraints)
-
 type Abstraction = Term -> Term -> Term
 
-emit :: Members Effects r => Constraint -> Sem r ()
-emit c@(Constraint cxt x) = do
-  state@UnifyState {constraints, metas} <- get
-  let shouldBeFree :: Term -> Maybe (Term, Index)
-      shouldBeFree (Local i) = Just (cxt !! i, i)
-      shouldBeFree _ = Nothing
-      -- pattern unification
-      solution :: Abstraction -> Term -> Term -> Maybe (Id, Term)
-      solution abstract lhs rhs
-        | (m@(Meta i), spine) <- peelApTelescope lhs,
-          not $ occurs m rhs,
-          Just frees <- traverse shouldBeFree spine,
-          -- FIXME:
-          all not $ occurs m . fst <$> frees,
-          let renamings = M.fromList $ zip (reverse (snd <$> frees)) [0 ..],
-          length frees == length renamings,
-          Just body <- rename renamings rhs =
-          -- TODO: check if the types of arguments are well formed
-          pure (i, foldr abstract body $ fst <$> frees)
-      solution _ x y = Nothing
-  case x of
-    Equal x y | x == y -> pure ()
-    Equal y x | Just (i, v) <- solution T.Lam x y -> solve i v
-    Equal x y
-      | Just (i, v) <- solution T.Lam x y -> solve i v
-      | otherwise -> do
-        x <- force True x
-        y <- force True y
-        trySimplify $ cxt |- x ?= y
-    HasType v t
-      | Just (i, v') <- solution T.Pi v t ->
-        case M.lookup i metas of
-          Just (Solved _ z) -> emit $ [] |- v' ?= z
-          Just (Unsolved z) -> emit $ [] |- v' ?= z
-          Nothing -> put state {metas = M.insert i (Unsolved v) metas}
-      | otherwise -> do
-        -- FIXME: this is a workaround to unfold less global variables
-        -- v <- force True v
-        t <- force True t
-        trySimplify $ cxt |- v ?: t
-  where
-    trySimplify :: Members Effects r => Constraint -> Sem r ()
-    trySimplify c = unlessM (simplify c) do
-      k <- gen
-      modify (\state@UnifyState {constraints} -> state {constraints = M.insert k c constraints})
-
--- | Implement reduction for the language. Given a term, normalize it.
--- This boils down mainly to applying lambdas to their arguments and all
--- the appropriate congruence rules.
-force :: Members Effects r => Bool -> Term -> Sem r Term
+force :: Members '[Reader GlobalContext, UnifyEffect] r => Bool -> Term -> Sem r Term
 force unfold x = do
   globals <- ask
-  UnifyState {metas} <- get
+  UnifyState {metas} <- getState
   let go :: Term -> Term
       go = \case
         Ap l r -> do
@@ -195,20 +107,16 @@ force unfold x = do
         x -> x
   pure $ go x
 
------------------------------------------------------------------
--------------- the actual unification code ----------------------
------------------------------------------------------------------
-
-typeOf :: Members Effects r => Context -> Term -> Sem r Term
+typeOf :: Members '[Error ElaborationError, Reader GlobalContext, UnifyEffect] r => Context -> Term -> Sem r Term
 typeOf cxt t = do
   globals <- ask
-  state@UnifyState {metas, constraints} <- get
+  UnifyState {metas} <- getState
   case t of
     Local i -> pure $ raise (i + 1) $ cxt !! i
     Meta i ->
       maybe
         ( do
-            meta <- Meta <$> gen
+            meta <- genMeta 0
             emit $ cxt |- t ?: meta
             pure meta
         )
@@ -223,9 +131,8 @@ typeOf cxt t = do
           emit $ cxt |- r ?: from
           pure (subst r 0 to)
         _ -> do
-          from <- (`applyApTelescope` (Local <$> reverse [0 .. length cxt - 1])) . Meta <$> gen
-          -- FIXME: If `reverse` is ommited, inference fails. Find out why.
-          to <- (`applyApTelescope` (Local <$> reverse [0 .. length cxt])) . Meta <$> gen
+          from <- genMeta (length cxt)
+          to <- genMeta (length cxt)
           emit $ cxt |- Pi from to ?= lType
           emit $ cxt |- from ?: Type
           emit $ cxt |- r ?: from
@@ -251,8 +158,8 @@ typeOf cxt t = do
           | otherwise ->
             throw InvalidCase
         _ -> do
-          paramMetas <- forM params (const $ Meta <$> gen)
-          indexMetas <- forM indices (const $ Meta <$> gen)
+          paramMetas <- forM params (const $ Meta <$> undefined)
+          indexMetas <- forM indices (const $ Meta <$> undefined)
           let spine = paramMetas <> indexMetas
           pure (spine, S.singleton (cxt |- xType ?= applyApTelescope (Global indName) spine))
       mapM_ emit (toList cs'')
@@ -283,7 +190,7 @@ typeOf cxt t = do
 -- simpler constraints. Any solution for the returned set of
 -- constraints should be a solution for the original constraint.
 -- NOTE: terms in the constraint are normalized
-simplify :: Members Effects r => Constraint -> Sem r Bool
+simplify :: Members '[Error ElaborationError, Reader GlobalContext, UnifyEffect] r => Constraint -> Sem r Bool
 simplify (Constraint cxt (HasType (Lam argType1 type') (Pi argType2 bodyType))) = do
   emit $ cxt |- argType1 ?= argType2
   emit $ cxt |- argType1 ?: Type
@@ -315,8 +222,86 @@ simplify (Constraint cxt (Equal t1 t2))
         (_, Meta {}) -> pure False
         _ -> throw $ CannotUnify t1 t2
 
-runUnifyM :: GlobalContext -> UnifyState -> Sem (State UnifyState : Reader GlobalContext : Gen : r) a -> Sem r a
-runUnifyM globals state =
-  runGen
-    . runReader globals
-    . evalState state
+run :: Members Effects r => Sem (UnifyEffect : r) a -> Sem r a
+run = interpret \case
+  Emit (Constraint cxt c) -> run $ do
+    state@UnifyState {constraints, metas} <- get
+    case c of
+      Equal x y | x == y -> pure ()
+      Equal y x | Just (k, v) <- solution T.Lam x y -> solve k v
+      Equal x y
+        | Just (k, v) <- solution T.Lam x y -> solve k v
+        | otherwise -> do
+          x <- force True x
+          y <- force True y
+          trySimplify $ cxt |- x ?= y
+      HasType v t
+        | Just (i, v') <- solution T.Pi v t ->
+          case M.lookup i metas of
+            Just (Solved _ z) -> emit $ [] |- v' ?= z
+            Just (Unsolved z) -> emit $ [] |- v' ?= z
+            Nothing -> put state {metas = M.insert i (Unsolved v) metas}
+        | otherwise -> do
+          -- FIXME: this is a workaround to unfold less global variables
+          -- v <- force True v
+          t <- force True t
+          trySimplify $ cxt |- v ?: t
+    where
+      shouldBeFree :: Term -> Maybe (Term, Index)
+      shouldBeFree (Local i) = Just (cxt !! i, i)
+      shouldBeFree _ = Nothing
+      solution :: Abstraction -> Term -> Term -> Maybe (Id, Term)
+      solution abstract lhs rhs
+        | (m@(Meta i), spine) <- peelApTelescope lhs,
+          not $ occurs m rhs,
+          Just frees <- traverse shouldBeFree spine,
+          -- FIXME:
+          all not $ occurs m . fst <$> frees,
+          let renamings = M.fromList $ zip (reverse (snd <$> frees)) [0 ..],
+          length frees == length renamings,
+          Just body <- rename renamings rhs =
+          -- TODO: check if the types of arguments are well formed
+          pure (i, foldr abstract body $ fst <$> frees)
+      solution _ x y = Nothing
+      trySimplify :: Members (UnifyEffect : Effects) r => Constraint -> Sem r ()
+      trySimplify c = unlessM (simplify c) do
+        k <- gen
+        modify (\state@UnifyState {constraints} -> state {constraints = M.insert k c constraints})
+  Solve k v -> run do
+    state@UnifyState {constraints, metas} <- get
+    type' <- case M.lookup k metas of
+      Just Unsolved {type'} -> pure type'
+      -- FIXME: make this case not happen
+      Just Solved {value, type'} -> emit ([] |- v ?= value) $> type'
+      Nothing -> typeOf [] v
+    put state {metas = M.insert k Solved {value = v, type'} metas}
+    mapM_
+      ( \(k, Constraint cxt v) ->
+          whenM
+            case v of
+              Equal x y -> do
+                x <- force True x
+                y <- force True y
+                simplify (cxt |- x ?= y)
+              HasType v t -> do
+                v <- force True v
+                t <- force True t
+                simplify (cxt |- v ?: t)
+            $ resolve k
+      )
+      (assocs constraints)
+  Resolve k ->
+    modify
+      ( \state@UnifyState {constraints} ->
+          state {constraints = M.delete k constraints}
+      )
+  GetState -> get
+  GenMeta level ->
+    -- FIXME: If `reverse` is ommited, inference fails. Find out why.
+    (`applyApTelescope` (Local <$> reverse [0 .. level - 1])) . Meta <$> gen
+
+runUnifyM ::
+  Members '[Error ElaborationError, Reader GlobalContext] r =>
+  Sem (UnifyEffect : State UnifyState : Gen : r) a ->
+  Sem r a
+runUnifyM = runGen . evalState initialState . run

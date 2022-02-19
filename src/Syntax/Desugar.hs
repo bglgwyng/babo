@@ -9,6 +9,7 @@ import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), Mo
 import Control.Monad.Writer (MonadWriter (tell), WriterT)
 import Core.Term (InductiveType (..), Plicity (..), Term (..))
 import qualified Core.Term as T
+import Core.Unification (UnifyEffect, genMeta)
 import Data.Bifunctor (bimap)
 import Data.Bool (bool)
 import Data.Either (fromLeft)
@@ -54,7 +55,7 @@ data Match = Constructor QName | Literal Literal | Self
 
 -- type GlobalContext = Map QName ([(LocalName, Plicity)], Maybe InductiveType)
 
-type Effects = '[Gen, Error ElaborationError]
+type Effects = '[Error ElaborationError, UnifyEffect]
 
 desugarExpression :: Members Effects r => GlobalContext -> LocalContext -> AST.Expression -> Sem r T.Term
 desugarExpression gcxt = desugar'
@@ -75,11 +76,11 @@ desugarExpression gcxt = desugar'
             | otherwise = error "?"
           apply xs'@((Just name, x) : xs) ((arg, _) : args)
             | name == arg = (first . (:) <$> desugar'' x) <*> apply xs args
-            | otherwise = (first . (:) <$> fillHole cxt) <*> apply xs' args
+            | otherwise = (first . (:) <$> insertMeta cxt) <*> apply xs' args
           apply ((Nothing, x) : xs) ((_, T.Explicit) : args) = (first . (:) <$> desugar'' x) <*> apply xs args
-          apply xs ((_, T.Implicit) : args) = (first . (:) <$> fillHole cxt) <*> apply xs args
+          apply xs ((_, T.Implicit) : args) = (first . (:) <$> insertMeta cxt) <*> apply xs args
       AST.Identifier x -> (lookup x)
-      AST.Meta -> ((,[]) <$> fillHole cxt)
+      AST.Meta -> ((,[]) <$> insertMeta cxt)
       AST.ForAll xs from to ->
         (,[]) <$> forall cxt (toList xs)
         where
@@ -90,12 +91,12 @@ desugarExpression gcxt = desugar'
       AST.Arrow from to ->
         (,[]) <$> (T.Pi <$> desugar'' from <*> desugar' (extend cxt) to)
       AST.Let name value body ->
-        (,[]) <$> (T.Ap <$> (T.Lam <$> fillHole cxt <*> desugar' (name : cxt) body) <*> desugar'' value)
+        (,[]) <$> (T.Ap <$> (T.Lam <$> insertMeta cxt <*> desugar' (name : cxt) body) <*> desugar'' value)
       AST.Case xs cases -> do
         xs' <- forM xs desugar''
         let bounds = reverse [0 .. length xs' - 1]
         y <- go bounds ((cxt,) <$> cases)
-        argTypes <- forM xs' (const $ fillHole cxt)
+        argTypes <- forM xs' (const $ insertMeta cxt)
         pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs', [])
         where
           go :: Members Effects r => [Int] -> [(LocalContext, AST.Case)] -> Sem r T.Term
@@ -186,10 +187,8 @@ desugarExpression gcxt = desugar'
       body' <- desugarExpression gcxt (cxt' <> cxt) body
       pure $ foldr T.Lam body' argTypes
 
-fillHole :: Members Effects r => LocalContext -> Sem r T.Term
-fillHole cxt = do
-  meta <- Meta <$> gen
-  pure $ foldr (flip T.Ap . T.Local) meta (zipWith const [0 ..] cxt)
+insertMeta :: Members Effects r => LocalContext -> Sem r T.Term
+insertMeta cxt = genMeta (length cxt)
 
 desugarArguments :: Members Effects r => GlobalContext -> LocalContext -> [AST.Argument] -> Sem r ([T.Argument], LocalContext)
 desugarArguments gcxt = go
@@ -197,7 +196,7 @@ desugarArguments gcxt = go
     go :: Members Effects r => LocalContext -> [AST.Argument] -> Sem r ([T.Argument], LocalContext)
     go cxt [] = pure ([], [])
     go cxt ((names, type', _) : args) = do
-      type'' <- maybe (fillHole cxt) (desugarExpression gcxt cxt) type'
+      type'' <- maybe (insertMeta cxt) (desugarExpression gcxt cxt) type'
       let args' = bindName type'' <$> names
           names' = toList (T.name <$> args')
       (args, context) <- go (names' <> cxt) args
