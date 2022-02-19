@@ -9,7 +9,6 @@ import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), Mo
 import Control.Monad.Writer (MonadWriter (tell), WriterT)
 import Core.Term (InductiveType (..), Plicity (..), Term (..))
 import qualified Core.Term as T
-import Core.Unification (subst)
 import Data.Bifunctor (bimap)
 import Data.Bool (bool)
 import Data.Either (fromLeft)
@@ -21,7 +20,7 @@ import Data.List.Extra (allSame, elemIndex)
 import Data.List.NonEmpty (NonEmpty (..), groupWith, groupWith1, nonEmpty, toList, uncons)
 import Data.List.NonEmpty.Extra (groupWith)
 import Data.Map as M (Map, delete, fromList, lookup, member, singleton)
-import Data.Maybe (catMaybes, fromJust, fromMaybe, isNothing)
+import Data.Maybe (catMaybes, fromMaybe, isNothing)
 import Data.Tuple.Extra (dupe, firstM)
 import Debug.Trace
 import Effect.ElaborationError (ElaborationError (..))

@@ -14,12 +14,6 @@ data Inhabitant
   | DataConstructor {args :: [(LocalName, Plicity)], type' :: T.Term, ind :: InductiveType}
   deriving (Show)
 
--- typeOfDefinition :: Definition -> T.Term
--- typeOfDefinition x = Prelude.foldr T.Pi (Context.type' x) (T.type' <$> args x)
-
--- valueOfDefinition :: Definition -> T.Term
--- valueOfDefinition x = Prelude.foldr T.Lam (Context.value x) (T.type' <$> args x)
-
 type GlobalContext = Map QName Inhabitant
 
 type LocalContext = [LocalName]

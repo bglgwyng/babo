@@ -1,11 +1,15 @@
 module Core.UnifyState where
 
 import Common
+import Control.Arrow ((&&&), (***))
 import Core.Constraint
 import Core.Meta
+import Core.Term
 import Data.Map (assocs)
 import qualified Data.Map as M
 import qualified Data.Set as S
+import Polysemy (Member, Sem)
+import Polysemy.State (State, get)
 import Prettyprinter
 import Prettyprinter.Render.String
 
@@ -42,14 +46,14 @@ instance Pretty UnifyState where
         ( pretty "metas:"
             <> line
             <> vsep
-              ( ( \(k, v) ->
-                    indent 2 $
-                      pretty k
-                        <> ( case v of
-                               Solved x _ -> pretty "? =" <+> pretty (show x)
-                               Unsolved t -> pretty "? :" <+> pretty (show t)
-                           )
-                )
+              ( indent 2
+                  . uncurry (<+>)
+                  . ( (pretty . show . Meta)
+                        *** ( \case
+                                Solved x _ -> pretty "=" <+> pretty (show x)
+                                Unsolved t -> pretty ":" <+> pretty (show t)
+                            )
+                    )
                   <$> assocs metas
               )
         )
@@ -57,3 +61,7 @@ instance Pretty UnifyState where
       unless p m
         | p = mempty
         | otherwise = m
+
+allMetaSolved :: Member (State UnifyState) r => Sem r Bool
+allMetaSolved =
+  all solved . M.elems . metas <$> get

@@ -2,24 +2,23 @@
 
 module Elaborate where
 
-import Common (Id, Level, LocalName, QName (QName, name))
+import Common
 import Context (GlobalContext, Inhabitant (..), LocalContext)
 import qualified Context
-import Control.Arrow (Arrow ((***)), (&&&), (>>>))
+import Control.Arrow (Arrow (second, (***)), (&&&), (>>>))
 import Control.Monad (foldM)
-import Control.Monad.Identity (Identity (Identity), IdentityT (runIdentityT), runIdentity)
+import Control.Monad.Extra (unlessM)
 import Control.Monad.Logic
 import Control.Monad.Trans (lift)
 import qualified Core.Term as T
 import Core.Unification
 import qualified Core.Unification as U
-import Data.Bifunctor
+import Core.UnifyState
 import Data.Foldable (Foldable (toList), fold)
 import Data.Functor
-import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (assocs, fromList, singleton)
 import qualified Data.Map as M
-import Data.Maybe (fromJust, listToMaybe)
+import Data.Maybe (listToMaybe)
 import qualified Data.Set as S
 import Data.Traversable (forM)
 import Data.Tuple (swap)
@@ -28,9 +27,8 @@ import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (gen)
 import Polysemy (Embed, Member, Members, Sem, embed, run)
 import Polysemy.Error (Error, throw)
-import Polysemy.NonDet
 import Polysemy.Reader (Reader, ask, runReader)
-import Polysemy.State (evalState, runState)
+import Polysemy.State (evalState, get, runState)
 import Polysemy.Trace (Trace, trace)
 import Syntax.AST
 import qualified Syntax.AST as AST
@@ -111,13 +109,15 @@ elaborate' AST.Declaration {name, args, type'} = do
   -- FIXME:
   let (argBinds, argTypes) = unzipArgs args'
   type' <- foldr T.Pi `flip` argTypes <$> desugarExpression gcxt cxt' type'
-  resolve <- unifyAll $ S.singleton $ [] |- type' ?: T.Type
+  metas <- metas <$> get
+  emit $ [] |- type' ?: T.Type
+  type' <- force False type'
   pure
     ( M.singleton
         (QName [] name)
         ( Context.Declaration
             { args = argBinds,
-              Context.type' = resolve type'
+              type' = type'
             }
         )
     )
@@ -126,20 +126,22 @@ elaborate' AST.Definition {name, args, maybeType, value} = do
   (args', cxt') <- desugarArguments gcxt [] args
   -- FIXME:
   let (argBinds, argTypes) = unzipArgs args'
+  value <-
+    foldr T.Lam `flip` argTypes
+      <$> desugarExpression gcxt cxt' value
   type' <-
     foldr T.Pi `flip` argTypes
       <$> maybe (fillHole cxt') (desugarExpression gcxt cxt') maybeType
-  value' <-
-    foldr T.Lam `flip` argTypes
-      <$> desugarExpression gcxt cxt' value
-  resolve <- unifyAll $ S.singleton $ [] |- value' ?: type'
+  emit $ [] |- value ?: type'
+  value <- force False value
+  type' <- force False type'
   pure
     ( M.singleton
         (QName [] name)
         ( Context.Definition
             { args = argBinds,
-              type' = resolve type',
-              value = resolve value'
+              value = value,
+              type' = type'
             }
         )
     )
@@ -148,8 +150,9 @@ elaborate' (Eval x) = do
   metaId <- gen
   let meta = T.Meta metaId
   value <- desugarExpression gcxt mempty x
-  resolve <- unifyAll $ S.singleton $ [] |- value ?: meta
-  let value' = reduce gcxt mempty True $ resolve value
+  emit $ [] |- value ?: meta
+  metas <- metas <$> get
+  value' <- force True value
   trace ("%eval " <> show value <> " = " <> show value')
   pure mempty
 elaborate' (AST.TypeOf x) = do
@@ -157,27 +160,28 @@ elaborate' (AST.TypeOf x) = do
   metaId <- gen
   let meta = T.Meta metaId
   value <- desugarExpression gcxt mempty x
-  resolve <- unifyAll $ S.singleton ([] |- value ?: meta)
-  trace ("%typeof " <> show (resolve value) <> " : " <> show (resolve meta))
+  emit $ [] |- value ?: meta
+  metas <- metas <$> get
+  value <- force False value
+  type' <- force False meta
+  trace ("%typeof " <> show value <> " : " <> show type')
   pure mempty
 elaborate' (CheckUnify x y) = do
   gcxt <- ask
   x <- desugarExpression gcxt mempty x
   y <- desugarExpression gcxt mempty y
   type' <- T.Meta <$> gen
-  (substs, _) <- unify $ S.singleton $ [] |- x ?= y
+  emit $ [] |- x ?= y
   trace ("%check " <> show x <> " = " <> show y)
-  forM_ (assocs substs) $
-    trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta *** show)
+  trace . show =<< get
   pure mempty
 elaborate' (CheckTypeOf value type') = do
   gcxt <- ask
   value <- desugarExpression gcxt mempty value
   type' <- desugarExpression gcxt mempty type'
-  (substs, _) <- unify (S.singleton $ [] |- value ?: type')
+  emit $ [] |- value ?: type'
   trace ("%check " <> show value <> " : " <> show type')
-  forM_ (assocs substs) $
-    trace . ("  " <>) . uncurry ((<>) . (<> " = ")) . (show . T.Meta *** show)
+  trace . show =<< get
   pure mempty
 elaborate' _ = pure mempty
 
