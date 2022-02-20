@@ -198,11 +198,11 @@ desugarArguments gcxt = go
     go cxt ((names, type', _) : args) = do
       type'' <- maybe (insertMeta cxt) (desugarExpression gcxt cxt) type'
       let args' = bindName type'' <$> names
-          names' = toList (T.name <$> args')
+          names' = reverse $ toList (T.name <$> args')
       (args, context) <- go (names' <> cxt) args
       pure
         ( toList args' <> args,
-          context <> reverse names'
+          context <> names'
         )
       where
         bindName :: T.Term -> LocalName -> T.Argument
