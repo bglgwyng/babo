@@ -240,7 +240,7 @@ run = interpret \case
           case M.lookup i metas of
             Just (Solved _ z) -> emit $ [] |- v' ?= z
             Just (Unsolved z) -> emit $ [] |- v' ?= z
-            Nothing -> put state {metas = M.insert i (Unsolved v) metas}
+            Nothing -> put state {metas = M.insert i (Unsolved v') metas}
         | otherwise -> do
           -- FIXME: this is a workaround to unfold less global variables
           -- v <- force True v
