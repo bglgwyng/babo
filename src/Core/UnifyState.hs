@@ -38,7 +38,7 @@ instance Pretty UnifyState where
       ( pretty
           "constraints:"
           <> line
-          <> vsep (indent 2 . pretty <$> M.toList constraints)
+          <> vsep (indent 2 . pretty <$> M.elems constraints)
           <> line
       )
       <> unless
