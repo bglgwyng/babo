@@ -18,7 +18,7 @@ import Syntax.Pattern (Pattern)
 newtype Annotation
   = Annotation Expression
 
-type Case = ([Pattern], Expression)
+type Branch = ([Pattern], Expression)
 
 type Disk = (Maybe LocalName, Expression)
 
@@ -28,9 +28,9 @@ data Expression
   | ForAll (NonEmpty LocalName) Expression Expression
   | Arrow Expression Expression
   | Let LocalName Expression Expression
-  | Case [Expression] [Case]
+  | Case [Expression] [Branch]
   | Lambda (NonEmpty Argument) Expression
-  | LambdaCase [Argument] [Case]
+  | LambdaCase [Argument] [Branch]
   | Infix Expression QName Expression
   | Type
   | Tuple [Expression]

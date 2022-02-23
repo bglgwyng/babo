@@ -1,6 +1,6 @@
 module Syntax.Pretty where
 
-import Common (QName)
+import Common
 import Control.Arrow ((>>>))
 import Data.Functor
 import Data.List (intercalate)
@@ -86,10 +86,10 @@ instance Pretty Expression where
             Nothing -> mempty
             Just xs -> prettyLambdaArguments xs <> line
         )
-      <> pretty "{" <+> align (sep (prettyCase <$> cases) <+> pretty "}")
+      <> pretty "{" <+> align (sep (prettyBranch <$> cases) <+> pretty "}")
     where
-      prettyCase :: Case -> Doc ann
-      prettyCase (pattern, expression) =
+      prettyBranch :: Branch -> Doc ann
+      prettyBranch (pattern, expression) =
         sep
           [ pretty pattern,
             pretty "->"

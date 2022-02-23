@@ -7,7 +7,7 @@ import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
 import Control.Monad (foldM, forM, guard, unless, (>=>))
 import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), MonadTrans (lift), cont, runCont)
 import Control.Monad.Writer (MonadWriter (tell), WriterT)
-import Core.Term (InductiveType (..), Plicity (..), Term (..))
+import Core.Term (InductiveType (..), Plicity (..), Term (..), subst)
 import qualified Core.Term as T
 import Core.Unification (UnifyEffect, genMeta)
 import Data.Bifunctor (bimap)
@@ -99,7 +99,7 @@ desugarExpression gcxt = desugar'
         argTypes <- forM xs' (const $ insertMeta cxt)
         pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs', [])
         where
-          go :: Members Effects r => [Int] -> [(LocalContext, AST.Case)] -> Sem r T.Term
+          go :: Members Effects r => [Int] -> [(LocalContext, AST.Branch)] -> Sem r T.Term
           go xs [(cxt, ([], body))] = desugar' cxt body
           go (x : xs) [(cxt, (Variable name : ys, body))] = go xs [(setAt x name cxt, (ys, body))]
           go (x : xs) branches =
@@ -115,7 +115,7 @@ desugarExpression gcxt = desugar'
                             where
                               -- FIXME:
                               arity = length argPats
-                              introduce :: (LocalContext, AST.Case) -> (LocalContext, AST.Case)
+                              introduce :: (LocalContext, AST.Branch) -> (LocalContext, AST.Branch)
                               introduce (locals, (Data _ argPats : patterns, body)) =
                                 ( replicate arity "" <> locals,
                                   ((fromRight undefined <$> argPats) <> patterns, body)
@@ -123,7 +123,7 @@ desugarExpression gcxt = desugar'
                               introduce _ = undefined
                           Variable name -> (T.Self,) <$> go xs (introduce <$> cases)
                             where
-                              introduce :: (LocalContext, AST.Case) -> (LocalContext, AST.Case)
+                              introduce :: (LocalContext, AST.Branch) -> (LocalContext, AST.Branch)
                               introduce (locals, (Variable name : patterns, body)) =
                                 (setAt x name locals, (patterns, body))
                               introduce _ = undefined

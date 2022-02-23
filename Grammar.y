@@ -170,21 +170,21 @@ Patterns :: { [P.Pattern] }
           : Pattern              { [$1] }
           | Pattern ',' Patterns { $1 : $3 }
           
-Case :: { Case }
+Branch :: { Branch }
           : Patterns '->' Expression { ($1, $3) }
 
-Cases :: { [Case] }
-          : {- empty -}    { [] }
-          | Case           { [$1] }
-          | Case ';' Cases { $1 : $3 }
+Branches :: { [Branch] }
+          : {- empty -}         { [] }
+          | Branch              { [$1] }
+          | Branch ';' Branches { $1 : $3 }
 
 Expression :: { Expression }
           : let lsym '=' Expression ',' Expression           { Let $2 $4 $6 }
           | forall LocalName_s ':' Expression ',' Expression { ForAll $2 $4 $6 }
-          | case CommaSeperated '{' Cases '}'                { Case $2 $4 } 
+          | case CommaSeperated '{' Branches '}'             { Case $2 $4 } 
           | '\\' LambdaArguments '->' Expression             { Lambda $2 $4 }
-          | '\\' LambdaArguments '{' Cases '}'               { LambdaCase (toList $2) $4 } 
-          | '\\' '{' Cases '}'                               { LambdaCase [] $3 } 
+          | '\\' LambdaArguments '{' Branches '}'            { LambdaCase (toList $2) $4 } 
+          | '\\' '{' Branches '}'                            { LambdaCase [] $3 } 
           | BinaryExpression                                 { $1 }
 
 Disk :: { Disk }
