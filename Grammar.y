@@ -14,6 +14,7 @@ import Concrete.Pattern hiding (List, Literal, Tuple, Variable)
 %name parse
 %tokentype { Token }
 %error { parseError }
+%monad { Either String } { thenE } { returnE }
 
 %token
     data { TokenDatatype }
@@ -227,11 +228,13 @@ StringLiteral :: { Literal }
         : string { StringLiteral $1 }
 
 
-
 {
 
-parseError :: [Token] -> a
-parseError _ = error "Parse error"
+parseError tokens = Left "Parse error"
+
+thenE = (>>=)
+returnE = pure
+
 
 -- ' prevents syntax highlighting
 
