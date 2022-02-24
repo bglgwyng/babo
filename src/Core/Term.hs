@@ -7,6 +7,7 @@ import Data.List.NonEmpty (NonEmpty, toList)
 import Data.List.NonEmpty.Extra (NonEmpty)
 import Data.Map (Map, (!))
 import qualified Data.Map as M
+import Data.Maybe (fromMaybe, maybeToList)
 import GHC.Exts (Any)
 import GHC.OldList (intercalate)
 import Syntax.Literal
@@ -19,13 +20,14 @@ data Term
   | Ap Term Term
   | Lam Term Term
   | Pi Term Term
-  | Case Term (Maybe InductiveType) [(Pattern, Term)]
+  | Let Term Term
+  | -- TODO: merge with Local
+    Case Index (Maybe InductiveType) [(Pattern, Term)] (Maybe Term)
   deriving (Eq, Ord)
 
 data Pattern
   = Constructor LocalName
   | Literal Literal
-  | Self
   deriving (Eq, Ord)
 
 data Plicity = Explicit | Implicit deriving (Show, Eq, Ord)
@@ -54,22 +56,24 @@ instance Show Term where
   showsPrec _ (Local i) = showString "!" . shows i
   showsPrec _ (Meta i) = showString "?" . shows i
   showsPrec _ Type = showString "Type"
+  showsPrec prec (Let x y) = showParen (prec > 1) $ showString "let _ = " . showsPrec 2 x . showString " in " . showsPrec 1 y
   showsPrec prec (Ap t1 t2) = showParen (prec > 3) $ showsPrec 3 t1 . showString " " . showsPrec 4 t2
   showsPrec prec (Lam t1 t2) = showParen (prec > 0) $ showString "\\(_: " . shows t1 . showString ") -> " . shows t2
   showsPrec prec (Pi t1 t2) = showParen (prec > 1) $ showsPrec 2 t1 . showString " -> " . showsPrec 1 t2
-  showsPrec _ (Case x ind t2) =
-    showString "case " . shows x . maybe id ((showString " in " .) . shows) ind
+  showsPrec _ (Case x ind t2 defaults) =
+    showString "case " . shows (Local x) . maybe id ((showString " of " .) . shows) ind
       . showString " { "
-      . foldl1 (\x y -> x . showString "; " . y) (showAlt <$> t2)
+      . foldl1
+        (\x y -> x . showString "; " . y)
+        ((showAlt <$> t2) ++ maybeToList ((showString "_ -> " .) . shows <$> defaults))
       . showString " }"
     where
       showAlt :: (Pattern, Term) -> ShowS
       showAlt (p, t) = shows p . showString " -> " . shows t
 
 instance Show Pattern where
-  show (Constructor x) = show x
+  show (Constructor x) = x
   show x@(Literal _) = show x
-  show Self = "_"
 
 raise :: Int -> Term -> Term
 raise = go 0
@@ -79,6 +83,23 @@ raise = go 0
       Ap l r -> go lower i l `Ap` go lower i r
       Lam arg body -> Lam (go lower i arg) (go (lower + 1) i body)
       Pi arg body -> Pi (go lower i arg) (go (lower + 1) i body)
+      Case x (Just ind) branches defaults ->
+        Case
+          (i + x)
+          (Just ind)
+          ( ( \case
+                (Constructor name, body) ->
+                  let InductiveType {qname = QName {namespace}, variants} = ind
+                      Just (_, (argument, _)) = find ((== name) . fst) variants
+                   in ( Constructor name,
+                        raise (length argument + i) body
+                      )
+                x -> error (show x)
+            )
+              <$> branches
+          )
+          defaults
+      Case _ Nothing _ _ -> error "not implemented"
       _ -> t
 
 -- | Substitute a term for the de Bruijn variable @i@.
@@ -91,22 +112,30 @@ subst new i = \case
   Ap l r -> subst new i l `Ap` subst new i r
   Lam arg body -> Lam (subst new i arg) (subst (raise 1 new) (i + 1) body)
   Pi arg body -> Pi (subst new i arg) (subst (raise 1 new) (i + 1) body)
-  Case x (Just ind) branches ->
-    Case (subst new i x) (Just ind) $
-      ( \case
-          (Constructor name, body) ->
-            let InductiveType {qname = QName {namespace}, variants} = ind
-                Just (_, (argument, _)) = find (\(name', _) -> name' == name) variants
-             in ( Constructor name,
-                  subst
-                    (raise (length argument) new)
-                    (i + length argument)
-                    body
-                )
-          x -> error (show x)
+  Case j (Just ind) branches defaults ->
+    Case
+      ( case compare j i of
+          LT -> j
+          EQ -> i
+          GT -> j - 1
       )
-        <$> branches
-  Case _ Nothing _ -> error "not implemented"
+      (Just ind)
+      ( ( \case
+            (Constructor name, body) ->
+              let InductiveType {qname = QName {namespace}, variants} = ind
+                  Just (_, (args, _)) = find ((== name) . fst) variants
+               in ( Constructor name,
+                    subst
+                      (raise (length args) new)
+                      (i + length args)
+                      body
+                  )
+            x -> error (show x)
+        )
+          <$> branches
+      )
+      (subst new i <$> defaults)
+  Case _ Nothing _ _ -> error "not implemented"
   x -> x
 
 occurs :: Term -> Term -> Bool

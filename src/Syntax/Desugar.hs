@@ -4,29 +4,28 @@ import Common
 import Context
 import Control.Applicative
 import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
-import Control.Monad (foldM, forM, guard, unless, (>=>))
+import Control.Monad (foldM, forM, forM_, guard, unless, when, (>=>))
 import Control.Monad.Cont (Cont, ContT (ContT, runContT), MonadCont (callCC), MonadTrans (lift), cont, runCont)
 import Control.Monad.Writer (MonadWriter (tell), WriterT)
-import Core.Term (InductiveType (..), Plicity (..), Term (..), subst)
+import Core.Term (InductiveType (..), Plicity (..), Term (..), raise)
 import qualified Core.Term as T
 import Core.Unification (UnifyEffect, genMeta)
 import Data.Bifunctor (bimap)
 import Data.Bool (bool)
-import Data.Either (fromLeft)
+import Data.Either (fromLeft, partitionEithers)
 import Data.Either.Extra (fromRight)
 import Data.Function (on)
 import Data.Functor ((<&>))
 import Data.List (find, groupBy)
-import Data.List.Extra (allSame, elemIndex)
-import Data.List.NonEmpty (NonEmpty (..), groupWith, groupWith1, nonEmpty, toList, uncons)
-import Data.List.NonEmpty.Extra (groupWith)
+import Data.List.Extra (allSame, elemIndex, groupOn)
+import Data.List.NonEmpty (NonEmpty ((:|)), groupWith, toList)
 import Data.Map as M (Map, delete, fromList, lookup, member, singleton)
-import Data.Maybe (catMaybes, fromMaybe, isNothing)
+import Data.Maybe (catMaybes, fromJust, fromMaybe, isNothing)
 import Data.Tuple.Extra (dupe, firstM)
 import Debug.Trace
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen)
-import Polysemy (Member, Members, Sem)
+import Polysemy (Embed (unEmbed), Member, Members, Sem)
 import Polysemy.Error (Error, throw)
 import Syntax.AST (TopLevelStatement (..))
 import qualified Syntax.AST as AST
@@ -56,6 +55,9 @@ data Match = Constructor QName | Literal Literal | Self
 -- type GlobalContext = Map QName ([(LocalName, Plicity)], Maybe InductiveType)
 
 type Effects = '[Error ElaborationError, UnifyEffect]
+
+shift :: Level -> LocalContext -> LocalContext
+shift = (<>) . (`replicate` "")
 
 desugarExpression :: Members Effects r => GlobalContext -> LocalContext -> AST.Expression -> Sem r T.Term
 desugarExpression gcxt = desugar'
@@ -94,64 +96,65 @@ desugarExpression gcxt = desugar'
         (,[]) <$> (T.Ap <$> (T.Lam <$> insertMeta cxt <*> desugar' (name : cxt) body) <*> desugar'' value)
       AST.Case xs cases -> do
         xs' <- forM xs desugar''
-        let bounds = reverse [0 .. length xs' - 1]
-        y <- go bounds ((cxt,) <$> cases)
+        y <- go (zipWith const [0 ..] xs) ((shift (length xs') cxt,) . first (foo <$>) <$> cases)
+        pure (foldr Let y xs', [])
         argTypes <- forM xs' (const $ insertMeta cxt)
         pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs', [])
         where
-          go :: Members Effects r => [Int] -> [(LocalContext, AST.Branch)] -> Sem r T.Term
-          go xs [(cxt, ([], body))] = desugar' cxt body
-          go (x : xs) [(cxt, (Variable name : ys, body))] = go xs [(setAt x name cxt, (ys, body))]
-          go (x : xs) branches =
-            T.Case (T.Local x) . Just <$> ind
-              <*> forM
-                (groupBy (on equivalent (head . fst . snd)) branches)
-                ( \cases ->
-                    let ((_, (headCase : _, _)) : _) = cases
-                     in case headCase of
-                          Data QName {name} argPats ->
-                            (T.Constructor name,)
-                              <$> go ([arity - 1, arity - 2 .. 0] ++ ((arity +) <$> xs)) (introduce <$> cases)
-                            where
-                              -- FIXME:
-                              arity = length argPats
-                              introduce :: (LocalContext, AST.Branch) -> (LocalContext, AST.Branch)
-                              introduce (locals, (Data _ argPats : patterns, body)) =
-                                ( replicate arity "" <> locals,
-                                  ((fromRight undefined <$> argPats) <> patterns, body)
+          go :: Members Effects r => [Index] -> [(LocalContext, ([Pattern'], AST.Expression))] -> Sem r T.Term
+          go [] [(cxt, ([], body))] = desugar' cxt body
+          go [] _ = throw InvalidPatterns
+          go (x : xs) branches = do
+            let (matches, bindings) =
+                  partitionEithers $
+                    ( \(cxt, (Pattern' binder subPattern : ps, body)) ->
+                        let cxt' = setAt x binder cxt
+                         in case subPattern of
+                              Just (ctorName, argPatterns) -> Left (ctorName, (argPatterns, (cxt', (ps, body))))
+                              _ -> Right (cxt', (ps, body))
+                    )
+                      <$> branches
+            defaults <- if null bindings then pure Nothing else Just <$> go xs bindings
+            traceShowM ("defaults", defaults)
+            if null matches
+              then case defaults of
+                Just x -> pure x
+                _ -> error "not implemented"
+              else do
+                ind <- do
+                  let constructors = fst <$> matches
+                      lookupConstructor qname@QName {namespace, Common.name} =
+                        maybe (throw $ ConstructorNotFound qname) pure $
+                          M.lookup qname gcxt >>= (\case DataConstructor {ind} -> pure ind; _ -> Nothing)
+                  -- FIXME:
+                  indNominees <- forM constructors lookupConstructor
+                  if allSame indNominees
+                    then pure $ head indNominees
+                    else throw InvalidPatterns
+                ys <-
+                  forM
+                    (groupWith fst matches)
+                    ( \ys@((QName {name}, _) :| _) -> do
+                        let Just (args, _) = snd <$> find ((== name) . fst) (T.variants ind)
+                            arity = length args
+                            branches = snd <$> ys
+                        forM_ branches \(argPatterns, _) -> unless (length argPatterns == arity) $ throw InvalidPatterns
+                        (T.Constructor name,)
+                          <$> go
+                            -- FIXME: inefficiency
+                            ([arity - 1, arity - 2 .. 0] ++ ((arity +) <$> xs))
+                            ( toList $
+                                ( \(argPatterns, (cxt, (patterns, body))) ->
+                                    ( (binder <$> argPatterns) <> cxt,
+                                      (argPatterns <> patterns, body)
+                                    )
                                 )
-                              introduce _ = undefined
-                          Variable name -> (T.Self,) <$> go xs (introduce <$> cases)
-                            where
-                              introduce :: (LocalContext, AST.Branch) -> (LocalContext, AST.Branch)
-                              introduce (locals, (Variable name : patterns, body)) =
-                                (setAt x name locals, (patterns, body))
-                              introduce _ = undefined
-                          _ -> error "?"
-                )
-            where
-              ind :: Member (Error ElaborationError) r => Sem r InductiveType
-              ind = do
-                let headPatterns = head . fst . snd <$> branches
-                    constructorPatterns = catMaybes ((\case Data name _ -> Just name; _ -> Nothing) <$> headPatterns)
-                -- FIXME:
-                indNominees <- forM constructorPatterns lookupConstructor
-                if allSame indNominees
-                  then pure $ head indNominees
-                  else throw InvalidPatterns
-              lookupConstructor :: Member (Error ElaborationError) r => QName -> Sem r InductiveType
-              lookupConstructor qname@QName {namespace, Common.name} =
-                maybe (throw $ ConstructorNotFound qname) pure $
-                  M.lookup qname gcxt >>= (\case DataConstructor {ind} -> pure ind; _ -> Nothing)
-          go x y = error (show (x, y))
-          equivalent :: AST.Pattern -> AST.Pattern -> Bool
-          equivalent (Data x _) (Data y _) = x == y
-          equivalent (P.Literal x) (P.Literal y) = x == y
-          equivalent (Variable _) (Variable _) = True
-          equivalent (Variable _) Wildcard = True
-          equivalent Wildcard (Variable _) = True
-          equivalent Wildcard Wildcard = True
-          equivalent _ _ = False
+                                  <$> branches
+                            )
+                    )
+                pure $ T.Case x (Just ind) ys defaults
+          introduce argPatterns (cxt, (patterns, body)) =
+            ((binder <$> argPatterns) <> cxt, (argPatterns <> patterns, body))
       AST.Lambda args body -> (,[]) <$> lambda cxt (toList args) body
       AST.LambdaCase args cases -> undefined
       AST.Infix x op y ->
@@ -208,3 +211,15 @@ desugarArguments gcxt = go
         bindName :: T.Term -> LocalName -> T.Argument
         bindName type' ('\'' : name) = T.Argument {name, plicity = T.Implicit, type'}
         bindName type' name = T.Argument {name, plicity = T.Explicit, type'}
+
+data Pattern' = Pattern'
+  { binder :: LocalName,
+    subPattern :: Maybe (QName, [Pattern'])
+  }
+  deriving (Show)
+
+foo :: AST.Pattern -> Pattern'
+foo (Variable name) = Pattern' name Nothing
+foo (Data name patterns) = Pattern' "" (Just (name, foo . fromRight undefined <$> patterns))
+foo Wildcard = Pattern' "" Nothing
+foo _ = error "not implemented"

@@ -3,6 +3,7 @@ module Effect.ElaborationError where
 import Common (QName (..))
 import Core.Constraint (Constraint)
 import qualified Core.Term as T
+import Core.UnifyState (UnifyState)
 
 data ElaborationError
   = NameNotFound QName
@@ -11,5 +12,5 @@ data ElaborationError
   | ApplyToNonFunction
   | InvalidCase
   | CannotUnify T.Term T.Term
-  | UnresolvedConstraints [Constraint]
+  | UnresolvedConstraints UnifyState
   deriving (Show)
