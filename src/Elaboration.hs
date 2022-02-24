@@ -30,9 +30,8 @@ import Polysemy.Error (Error, throw)
 import Polysemy.Reader (Reader, ask, runReader)
 import Polysemy.State (evalState, get, runState)
 import Polysemy.Trace (Trace, trace)
-import Syntax.AST
-import qualified Syntax.AST as AST
-import Syntax.Desugar (desugarArguments, desugarExpression, insertMeta)
+import Concrete.Syntax as C
+import Concrete.Desugar (desugarArguments, desugarExpression, insertMeta)
 
 checkAllResolved :: Members [Error ElaborationError, UnifyEffect] r => Sem r ()
 checkAllResolved = do
@@ -46,9 +45,9 @@ traceUnresolved = do
 
 elaborate' ::
   Members '[Trace, Error ElaborationError, UnifyEffect, Reader GlobalContext] r =>
-  AST.TopLevelStatement ->
+  TopLevelStatement ->
   Sem r GlobalContext
-elaborate' AST.DataDeclaration {name, args = params, maybeType, variants} = do
+elaborate' DataDeclaration {name, args = params, maybeType, variants} = do
   gcxt <- ask
   (params', cxt') <- desugarArguments gcxt [] params
   let paramsArity = length params'
@@ -116,7 +115,7 @@ elaborate' AST.DataDeclaration {name, args = params, maybeType, variants} = do
             <$> variants'
         )
       )
-elaborate' AST.Declaration {name, args, type'} = do
+elaborate' C.Declaration {name, args, type'} = do
   gcxt <- ask
   (args', cxt') <- desugarArguments gcxt [] args
   -- FIXME:
@@ -134,7 +133,7 @@ elaborate' AST.Declaration {name, args, type'} = do
             }
         )
     )
-elaborate' AST.Definition {name, args, maybeType, value} = do
+elaborate' C.Definition {name, args, maybeType, value} = do
   gcxt <- ask
   (args', cxt') <- desugarArguments gcxt [] args
   -- FIXME:
@@ -168,7 +167,7 @@ elaborate' (Eval x) = do
   trace ("%eval " <> show value <> " = " <> show value')
   traceUnresolved
   pure mempty
-elaborate' (AST.TypeOf x) = do
+elaborate' (TypeOf x) = do
   gcxt <- ask
   meta <- genMeta 0
   value <- desugarExpression gcxt mempty x
@@ -199,8 +198,8 @@ elaborate' _ = pure mempty
 unzipArgs :: [T.Argument] -> ([(LocalName, T.Plicity)], [T.Term])
 unzipArgs args = unzip $ (\(T.Argument name plicity type') -> ((name, plicity), type')) <$> args
 
-elaborate :: Members '[Trace, Error ElaborationError] r => AST.Source -> Sem r GlobalContext
-elaborate (AST.Source xs) = do
+elaborate :: Members '[Trace, Error ElaborationError] r => Source -> Sem r GlobalContext
+elaborate (Source xs) = do
   foldM
     ( \xs y ->
         do

@@ -26,6 +26,13 @@ source-repository head
 library
   exposed-modules:
       Common
+      Concrete.Desugar
+      Concrete.Grammar
+      Concrete.Literal
+      Concrete.Pattern
+      Concrete.Pretty
+      Concrete.Syntax
+      Concrete.Tokens
       Context
       Core.Constraint
       Core.Meta
@@ -35,13 +42,6 @@ library
       Effect.ElaborationError
       Effect.Gen
       Elaboration
-      Syntax.AST
-      Syntax.Desugar
-      Syntax.Grammar
-      Syntax.Literal
-      Syntax.Pattern
-      Syntax.Pretty
-      Syntax.Tokens
   other-modules:
       Paths_babo
   hs-source-dirs:

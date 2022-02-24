@@ -1,4 +1,4 @@
-module Syntax.Pretty where
+module Concrete.Pretty where
 
 import Common
 import Control.Arrow ((>>>))
@@ -20,10 +20,10 @@ import Prettyprinter
     (<+>),
   )
 import Prettyprinter.Render.String (renderString)
-import Syntax.AST as AST
-import Syntax.Grammar hiding (indent)
-import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
-import qualified Syntax.Pattern as P
+import Concrete.Syntax
+import Concrete.Grammar hiding (indent)
+import Concrete.Pattern hiding (List, Literal, Tuple, Variable)
+import qualified Concrete.Pattern as P
 
 tabSize = 2
 
@@ -100,10 +100,10 @@ instance Pretty Expression where
   pretty (Literal x) = pretty x
   pretty (Parenthesized x) = pretty "(" <> align (pretty x <> pretty ")")
 
-prettyLambdaArguments :: NonEmpty AST.Argument -> Doc ann
+prettyLambdaArguments :: NonEmpty Argument -> Doc ann
 prettyLambdaArguments args = sep $ pretty' <$> toList args
   where
-    pretty' :: AST.Argument -> Doc ann
+    pretty' :: Argument -> Doc ann
     pretty' (name, Nothing, _) = sep (pretty <$> toList name)
     pretty' (name, Just type', _) = pretty "(" <> sep (pretty <$> toList name) <+> pretty ":" <+> pretty type' <> pretty ")"
 

@@ -16,11 +16,11 @@ import Polysemy.IO
 import Polysemy.Trace (trace, traceToIO)
 import Prettyprinter
 import Prettyprinter.Render.Text
-import Syntax.AST as AST
-import Syntax.Desugar (desugarExpression)
-import Syntax.Grammar (parse)
-import Syntax.Pretty
-import Syntax.Tokens (scanTokens)
+import Concrete.Syntax
+import Concrete.Desugar (desugarExpression)
+import Concrete.Grammar (parse)
+import Concrete.Pretty
+import Concrete.Tokens (scanTokens)
 import System.IO (putStrLn)
 
 main :: IO ()

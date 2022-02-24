@@ -10,7 +10,7 @@ import qualified Data.Map as M
 import Data.Maybe (fromMaybe, maybeToList)
 import GHC.Exts (Any)
 import GHC.OldList (intercalate)
-import Syntax.Literal
+import Concrete.Literal
 
 data Term
   = Global QName

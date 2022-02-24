@@ -1,8 +1,8 @@
-module Syntax.Pattern (Pattern (..), Implicit (..)) where
+module Concrete.Pattern (Pattern (..), Implicit (..)) where
 
 import Common
 import Data.List (intercalate)
-import Syntax.Literal (Literal)
+import Concrete.Literal (Literal)
 
 data Implicit
   = Implicit LocalName Pattern

@@ -1,13 +1,13 @@
 {-# OPTIONS_GHC -w #-}
-module Syntax.Grammar where
+module Concrete.Grammar where
 
-import Syntax.Tokens
+import Concrete.Tokens
 
 import Data.List.NonEmpty (NonEmpty(..), toList, fromList)
-import Syntax.AST
+import Concrete.Syntax
 import Common
-import qualified Syntax.Pattern as P
-import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
+import qualified Concrete.Pattern as P
+import Concrete.Pattern hiding (List, Literal, Tuple, Variable)
 import qualified Data.Array as Happy_Data_Array
 import qualified Data.Bits as Bits
 import Control.Applicative(Applicative(..))

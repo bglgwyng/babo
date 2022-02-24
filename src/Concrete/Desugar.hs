@@ -1,4 +1,4 @@
-module Syntax.Desugar where
+module Concrete.Desugar where
 
 import Common
 import Context
@@ -26,12 +26,12 @@ import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen)
 import Polysemy (Embed (unEmbed), Member, Members, Sem)
 import Polysemy.Error (Error, throw)
-import Syntax.AST (TopLevelStatement (..))
-import qualified Syntax.AST as AST
-import Syntax.Literal
-import Syntax.Pattern
-import qualified Syntax.Pattern as P
-import Syntax.Pretty
+import qualified Concrete.Syntax as C
+import Concrete.Syntax
+import Concrete.Literal
+import Concrete.Pattern
+import qualified Concrete.Pattern as P
+import Concrete.Pretty
 
 pairNew :: T.Term
 pairNew = T.Global (QName ["Prelude", "Pair"] "New")
@@ -42,35 +42,30 @@ listCons = T.Global (QName ["Prelude", "List"] "Cons")
 listNil :: T.Term
 listNil = T.Global (QName ["Prelude", "List"] "Nil")
 
-extend :: [String] -> [String]
-extend = ("_" :)
-
 setAt :: Int -> a -> [a] -> [a]
 setAt i x xs = take i xs ++ [x] ++ drop (i + 1) xs
 
 data Match = Constructor QName | Literal Literal | Self
   deriving (Eq, Ord, Show)
 
--- type GlobalContext = Map QName ([(LocalName, Plicity)], Maybe InductiveType)
-
 type Effects = '[Error ElaborationError, UnifyEffect]
 
-shift :: Level -> LocalContext -> LocalContext
-shift = (<>) . (`replicate` "")
+extend :: Level -> LocalContext -> LocalContext
+extend = (<>) . (`replicate` "_")
 
-desugarExpression :: Members Effects r => GlobalContext -> LocalContext -> AST.Expression -> Sem r T.Term
+desugarExpression :: Members Effects r => GlobalContext -> LocalContext -> C.Expression -> Sem r T.Term
 desugarExpression gcxt = desugar'
   where
-    desugar' :: Members Effects r => LocalContext -> AST.Expression -> Sem r T.Term
+    desugar' :: Members Effects r => LocalContext -> C.Expression -> Sem r T.Term
     desugar' cxt x = fst <$> desugarHead cxt x
-    desugarHead :: Members Effects r => LocalContext -> AST.Expression -> Sem r (T.Term, [(LocalName, Plicity)])
+    desugarHead :: Members Effects r => LocalContext -> C.Expression -> Sem r (T.Term, [(LocalName, Plicity)])
     desugarHead cxt = \case
-      AST.Application head spine -> do
+      C.Application head spine -> do
         (head', args) <- desugarHead cxt head
         (spine, args') <- apply (toList spine) args
         pure (foldl T.Ap head' spine, args')
         where
-          apply :: Members Effects r => [AST.Disk] -> [(LocalName, Plicity)] -> Sem r ([T.Term], [(LocalName, Plicity)])
+          apply :: Members Effects r => [C.Disk] -> [(LocalName, Plicity)] -> Sem r ([T.Term], [(LocalName, Plicity)])
           apply [] args = pure ([], args)
           apply xs []
             | all (isNothing . fst) xs = (,[]) <$> forM xs (desugar'' . snd)
@@ -80,27 +75,25 @@ desugarExpression gcxt = desugar'
             | otherwise = (first . (:) <$> insertMeta cxt) <*> apply xs' args
           apply ((Nothing, x) : xs) ((_, T.Explicit) : args) = (first . (:) <$> desugar'' x) <*> apply xs args
           apply xs ((_, T.Implicit) : args) = (first . (:) <$> insertMeta cxt) <*> apply xs args
-      AST.Identifier x -> (lookup x)
-      AST.Meta -> ((,[]) <$> insertMeta cxt)
-      AST.ForAll xs from to ->
+      C.Identifier x -> (lookup x)
+      C.Meta -> ((,[]) <$> insertMeta cxt)
+      C.ForAll xs from to ->
         (,[]) <$> forall cxt (toList xs)
         where
           forall :: Members Effects r => LocalContext -> [LocalName] -> Sem r T.Term
           forall _ [] = desugar' (reverse (toList xs) <> cxt) to
           forall cxt (x : xs) =
-            T.Pi <$> desugar'' from <*> forall (extend cxt) xs
-      AST.Arrow from to ->
-        (,[]) <$> (T.Pi <$> desugar'' from <*> desugar' (extend cxt) to)
-      AST.Let name value body ->
+            T.Pi <$> desugar'' from <*> forall (extend  1 cxt) xs
+      C.Arrow from to ->
+        (,[]) <$> (T.Pi <$> desugar'' from <*> desugar' (extend  1 cxt) to)
+      C.Let name value body ->
         (,[]) <$> (T.Ap <$> (T.Lam <$> insertMeta cxt <*> desugar' (name : cxt) body) <*> desugar'' value)
-      AST.Case xs cases -> do
+      C.Case xs cases -> do
         xs' <- forM xs desugar''
-        y <- go (zipWith const [0 ..] xs) ((shift (length xs') cxt,) . first (foo <$>) <$> cases)
-        pure (foldr Let y xs', [])
-        argTypes <- forM xs' (const $ insertMeta cxt)
-        pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs', [])
+        y <- go (zipWith const [0 ..] xs) ((extend (length xs') cxt,) . first (desugarPattern <$>) <$> cases)
+        pure (foldr T.Let y xs', [])
         where
-          go :: Members Effects r => [Index] -> [(LocalContext, ([Pattern'], AST.Expression))] -> Sem r T.Term
+          go :: Members Effects r => [Index] -> [(LocalContext, ([Pattern'], C.Expression))] -> Sem r T.Term
           go [] [(cxt, ([], body))] = desugar' cxt body
           go [] _ = throw InvalidPatterns
           go (x : xs) branches = do
@@ -153,22 +146,22 @@ desugarExpression gcxt = desugar'
                 pure $ T.Case x (Just ind) ys defaults
           introduce argPatterns (cxt, (patterns, body)) =
             ((binder <$> argPatterns) <> cxt, (argPatterns <> patterns, body))
-      AST.Lambda args body -> (,[]) <$> lambda cxt (toList args) body
-      AST.LambdaCase args cases -> undefined
-      AST.Infix x op y ->
+      C.Lambda args body -> (,[]) <$> lambda cxt (toList args) body
+      C.LambdaCase args cases -> undefined
+      C.Infix x op y ->
         (,[]) <$> (T.Ap <$> (T.Ap <$> (fst <$> lookup op) <*> desugar'' x) <*> desugar'' y)
-      AST.Tuple xs -> do
+      C.Tuple xs -> do
         xs' <- forM xs desugar''
         pure (foldl1 (T.Ap . T.Ap pairNew) xs', [])
-      AST.List xs -> do
+      C.List xs -> do
         xs' <- forM xs desugar''
         pure (foldr (flip T.Ap . T.Ap listCons) listNil xs', [])
-      AST.Type -> pure (T.Type, [])
-      AST.Literal x -> undefined
-      AST.Parenthesized x -> desugarHead cxt x
+      C.Type -> pure (T.Type, [])
+      C.Literal x -> undefined
+      C.Parenthesized x -> desugarHead cxt x
       where
         scope = length cxt
-        desugar'' :: Members Effects r => AST.Expression -> Sem r Term
+        desugar'' :: Members Effects r => C.Expression -> Sem r Term
         desugar'' = desugar' cxt
         lookup :: Member (Error ElaborationError) r => QName -> Sem r (T.Term, [(LocalName, Plicity)])
         lookup qname@QName {namespace, Common.name} =
@@ -181,7 +174,7 @@ desugarExpression gcxt = desugar'
                       . Context.args
                       <$> M.lookup qname gcxt
                   )
-    lambda :: Members Effects r => LocalContext -> [AST.Argument] -> AST.Expression -> Sem r T.Term
+    lambda :: Members Effects r => LocalContext -> [C.Argument] -> C.Expression -> Sem r T.Term
     lambda cxt args body = do
       (args, cxt') <- desugarArguments gcxt cxt args
       let argTypes = T.type' <$> args
@@ -191,10 +184,10 @@ desugarExpression gcxt = desugar'
 insertMeta :: Members Effects r => LocalContext -> Sem r T.Term
 insertMeta cxt = genMeta (length cxt)
 
-desugarArguments :: Members Effects r => GlobalContext -> LocalContext -> [AST.Argument] -> Sem r ([T.Argument], LocalContext)
+desugarArguments :: Members Effects r => GlobalContext -> LocalContext -> [C.Argument] -> Sem r ([T.Argument], LocalContext)
 desugarArguments gcxt = go
   where
-    go :: Members Effects r => LocalContext -> [AST.Argument] -> Sem r ([T.Argument], LocalContext)
+    go :: Members Effects r => LocalContext -> [C.Argument] -> Sem r ([T.Argument], LocalContext)
     go cxt [] = pure ([], [])
     go cxt ((names, type', _) : args) = do
       type'' <- maybe (insertMeta cxt) (desugarExpression gcxt cxt) type'
@@ -210,14 +203,15 @@ desugarArguments gcxt = go
         bindName type' ('\'' : name) = T.Argument {name, plicity = T.Implicit, type'}
         bindName type' name = T.Argument {name, plicity = T.Explicit, type'}
 
+-- FIXME: remove it
 data Pattern' = Pattern'
   { binder :: LocalName,
     subPattern :: Maybe (QName, [Pattern'])
   }
   deriving (Show)
 
-foo :: AST.Pattern -> Pattern'
-foo (Variable name) = Pattern' name Nothing
-foo (Data name patterns) = Pattern' "" (Just (name, foo . fromRight undefined <$> patterns))
-foo Wildcard = Pattern' "" Nothing
-foo _ = error "not implemented"
+desugarPattern :: C.Pattern -> Pattern'
+desugarPattern (Variable name) = Pattern' name Nothing
+desugarPattern (Data name patterns) = Pattern' "" (Just (name, desugarPattern . fromRight undefined <$> patterns))
+desugarPattern Wildcard = Pattern' "" Nothing
+desugarPattern _ = error "not implemented"

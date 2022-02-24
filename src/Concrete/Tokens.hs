@@ -2,7 +2,7 @@
 {-# LANGUAGE CPP #-}
 {-# LINE 1 "Tokens.x" #-}
 
-module Syntax.Tokens where
+module Concrete.Tokens where
 
 import Data.List.NonEmpty (NonEmpty(..), fromList)
 import Data.List.Split (wordsBy)

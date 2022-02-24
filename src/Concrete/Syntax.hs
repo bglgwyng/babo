@@ -1,4 +1,4 @@
-module Syntax.AST (module Syntax.Literal, module Syntax.Pattern, module Syntax.AST) where
+module Concrete.Syntax (module Concrete.Literal, module Concrete.Pattern, module Concrete.Syntax) where
 
 import Common
 import Control.Arrow
@@ -12,8 +12,8 @@ import GHC.OverloadedLabels (IsLabel (fromLabel))
 import Prettyprinter (pretty)
 import Prettyprinter.Render.String (renderString)
 import Prettyprinter.Render.Text (putDoc, renderLazy)
-import Syntax.Literal
-import Syntax.Pattern (Pattern)
+import Concrete.Literal
+import Concrete.Pattern (Pattern)
 
 newtype Annotation
   = Annotation Expression

@@ -1,4 +1,4 @@
-module Syntax.Literal where
+module Concrete.Literal where
 
 data Literal
   = UnitLiteral
