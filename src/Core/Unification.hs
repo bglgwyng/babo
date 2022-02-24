@@ -160,18 +160,15 @@ typeOf cxt t = do
       xType <- typeOf cxt (Local x) >>= force True
       let InductiveType {qname = indName, params, indices, variants} = ind
           QName {namespace} = indName
-      spine <-
-        (id <$>)
-          <$> ( case peelApTelescope xType of
-                  (Global name, spine)
-                    | name == indName -> pure spine
-                    | otherwise ->
-                      throw InvalidCase
-                  _ -> do
-                    spine <- forM (params <> indices) (const $ genMeta (length cxt))
-                    emit $ cxt |- xType ?= applyApTelescope (Global indName) spine
-                    pure spine
-              )
+      spine <- case peelApTelescope xType of
+        (Global name, spine)
+          | name == indName -> pure spine
+          | otherwise ->
+            throw InvalidCase
+        _ -> do
+          spine <- forM (params <> indices) (const $ genMeta (length cxt))
+          emit $ cxt |- xType ?= applyApTelescope (Global indName) spine
+          pure spine
       type' <- genMeta (length cxt)
       UnifyState {constraints, metas} <- getState
       forM_
@@ -181,7 +178,7 @@ typeOf cxt t = do
                 arity = length args
                 argTypes = (foldr (`subst` 0) `flip` spine) <$> zipWith (raise >>> (. T.type')) [arity -1, arity - 2 ..] args
                 body' = foldr (`subst` 0) body spine
-              in emit $ reverse argTypes <> cxt |- body ?: raise (length args) type'
+             in emit $ reverse argTypes <> cxt |- body ?: raise (length args) type'
         )
       forM_ defaults $ emit . (cxt |-) . (?: type')
       pure type'
