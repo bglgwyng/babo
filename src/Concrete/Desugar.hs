@@ -57,7 +57,10 @@ desugarExpression :: Members Effects r => GlobalContext -> LocalContext -> C.Exp
 desugarExpression gcxt = desugar'
   where
     desugar' :: Members Effects r => LocalContext -> C.Expression -> Sem r T.Term
-    desugar' cxt x = fst <$> desugarHead cxt x
+    desugar' cxt x = do
+      (x, spine) <- desugarHead cxt x
+      metas <- mapM (const $ insertMeta cxt) $ takeWhile ((== T.Implicit). snd) spine
+      pure $ foldl T.Ap x metas
     desugarHead :: Members Effects r => LocalContext -> C.Expression -> Sem r (T.Term, [(LocalName, Plicity)])
     desugarHead cxt = \case
       C.Application head spine -> do
@@ -75,7 +78,7 @@ desugarExpression gcxt = desugar'
             | otherwise = (first . (:) <$> insertMeta cxt) <*> apply xs' args
           apply ((Nothing, x) : xs) ((_, T.Explicit) : args) = (first . (:) <$> desugar'' x) <*> apply xs args
           apply xs ((_, T.Implicit) : args) = (first . (:) <$> insertMeta cxt) <*> apply xs args
-      C.Identifier x -> (lookup x)
+      C.Identifier x -> lookup x
       C.Meta -> ((,[]) <$> insertMeta cxt)
       C.ForAll xs from to ->
         (,[]) <$> forall cxt (toList xs)
