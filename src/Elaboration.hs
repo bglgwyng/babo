@@ -38,10 +38,10 @@ checkAllResolved = do
   state@UnifyState {constraints}  <- getState
   unless (null constraints) $ throw (UnresolvedConstraints state)
 
-traceUnresolved :: Members [Trace, UnifyEffect] r => Sem r ()
-traceUnresolved = do
-  state@UnifyState {constraints}  <- getState
-  unless (null constraints) $ trace (show state)
+traceSolutions :: Members [Trace, UnifyEffect] r => Sem r ()
+traceSolutions = do
+  state@UnifyState {metas}  <- getState
+  unless (null metas) $ trace (show state)
 
 elaborate' ::
   Members '[Trace, Error ElaborationError, UnifyEffect, Reader GlobalContext] r =>
@@ -165,7 +165,7 @@ elaborate' (Eval x) = do
   emit $ [] |- value ?: meta
   value' <- force True value
   trace ("%eval " <> show value <> " = " <> show value')
-  traceUnresolved
+  traceSolutions
   pure mempty
 elaborate' (TypeOf x) = do
   gcxt <- ask
@@ -175,7 +175,7 @@ elaborate' (TypeOf x) = do
   value <- force False value
   type' <- force False meta
   trace ("%typeof " <> show value <> " : " <> show type')
-  traceUnresolved
+  traceSolutions
   pure mempty
 elaborate' (CheckUnify x y) = do
   gcxt <- ask
@@ -183,15 +183,17 @@ elaborate' (CheckUnify x y) = do
   y <- desugarExpression gcxt mempty y
   emit $ [] |- x ?= y
   trace ("%check " <> show x <> " = " <> show y)
-  traceUnresolved
+  traceSolutions
   pure mempty
 elaborate' (CheckTypeOf value type') = do
   gcxt <- ask
   value <- desugarExpression gcxt mempty value
   type' <- desugarExpression gcxt mempty type'
   emit $ [] |- value ?: type'
+  value <- force False value
+  type' <- force False type'
   trace ("%check " <> show value <> " : " <> show type')
-  traceUnresolved
+  traceSolutions
   pure mempty
 elaborate' _ = pure mempty
 
