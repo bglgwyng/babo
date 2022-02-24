@@ -133,21 +133,21 @@ Constructor :: { QName }
           | usymQ { uncurry QName $1 }
 
 PatternArgument :: { Either P.Implicit P.Pattern }
-          : Pattern_                       { Right $1 }
-          | '(' LocalName '=' Pattern_ ')' { Left (P.Implicit $2 $4) }
-          | '(' lsym ')'                   { Left (P.PunnedImplicit $2) }
+          : Pattern               { Right $1 }
+          | LocalName '=' Pattern { Left (P.Implicit $1 $3) }
 
 PatternArguments :: { NonEmpty (Either P.Implicit P.Pattern) }
-          : PatternArgument                  { $1 :| [] }
-          | PatternArgument PatternArguments { $1 :| toList $2 }
+          : PatternArgument                      { $1 :| [] }
+          | PatternArgument ',' PatternArguments { $1 :| toList $3 }
 
 TuplePattern :: { [Pattern] }
                 : Pattern ',' Pattern       { [$1, $3] }
                 | Pattern ',' TuplePattern  { $1 : $3 }
 
 
-Pattern__ :: { P.Pattern }
+Pattern :: { P.Pattern }
           : Constructor          { P.Data $1 [] }
+          | Constructor '(' PatternArguments ')' { P.Data $1 (toList $3) }
           | lsym                 { P.Variable $1 }
           | '(' TuplePattern ')' { P.Tuple $2 }
           | '[' ']'              { P.List [] }
@@ -156,14 +156,6 @@ Pattern__ :: { P.Pattern }
           | StringLiteral        { P.Literal $1 }
           | '_'                  { Wildcard }
 
-
-Pattern_ :: { P.Pattern }
-          : Pattern__                            { $1 }
-          | '(' Constructor PatternArguments ')' { P.Data $2 (toList $3) }
-
-Pattern :: { P.Pattern }
-        : Pattern__                    { $1 }
-        | Constructor PatternArguments { P.Data $1 (toList $2) }
 
 Patterns :: { [P.Pattern] }
           : Pattern              { [$1] }
