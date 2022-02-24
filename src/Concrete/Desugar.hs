@@ -91,7 +91,9 @@ desugarExpression gcxt = desugar'
       C.Case xs cases -> do
         xs' <- forM xs desugar''
         y <- go (zipWith const [0 ..] xs) ((extend (length xs') cxt,) . first (desugarPattern <$>) <$> cases)
-        pure (foldr T.Let y xs', [])
+        -- pure (foldr T.Let y xs', [])
+        argTypes <- forM xs' (const $ insertMeta cxt)
+        pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs', [])
         where
           go :: Members Effects r => [Index] -> [(LocalContext, ([Pattern'], C.Expression))] -> Sem r T.Term
           go [] [(cxt, ([], body))] = desugar' cxt body
