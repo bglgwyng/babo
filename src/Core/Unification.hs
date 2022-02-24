@@ -85,11 +85,10 @@ force unfold x = do
   UnifyState {metas} <- getState
   let go :: Term -> Term
       go = \case
-        Ap l r -> do
-          let l' = go l
-          case l' of
+        Ap l r ->
+          case go l of
             Lam arg body -> go (subst r 0 body)
-            l -> Ap l' (go r)
+            l -> Ap l (go r)
         Let x y -> go (subst x 0 y)
         Lam arg body -> Lam (go arg) (go body)
         Pi arg body -> Pi (go arg) (go body)
