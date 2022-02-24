@@ -189,11 +189,12 @@ typeOf cxt t = do
 -- constraints should be a solution for the original constraint.
 -- NOTE: terms in the constraint are normalized
 simplify :: Members '[Error ElaborationError, Reader GlobalContext, UnifyEffect] r => Constraint -> Sem r Bool
--- simplify (Constraint cxt (HasType (Lam argType body) (Pi from to))) = do
---   emit $ cxt |- argType ?= from
---   emit $ cxt |- argType ?: Type
---   emit $ argType : cxt |- body ?: to
---   pure True
+-- NOTE: this is redundant
+simplify (Constraint cxt (HasType (Lam argType body) (Pi from to))) = do
+  emit $ cxt |- argType ?= from
+  emit $ cxt |- argType ?: Type
+  emit $ argType : cxt |- body ?: to
+  pure True
 simplify (Constraint cxt (HasType t1 t2)) = do
   type' <- typeOf cxt t1
   emit $ cxt |- type' ?= t2
