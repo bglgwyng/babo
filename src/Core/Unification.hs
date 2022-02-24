@@ -213,6 +213,7 @@ simplify (Constraint cxt (Equal t1 t2))
     pure True
   | (head1, spine1) <- peelApTelescope t1,
     (head2, spine2) <- peelApTelescope t2 =
+    -- TODO: check head1 and head2 is not unfoldable
     if head1 == head2 && on (==) length spine1 spine2
       then mapM_ (emit . (cxt |-)) (zipWith (?=) spine1 spine2) $> True
       else case (head1, head2) of
