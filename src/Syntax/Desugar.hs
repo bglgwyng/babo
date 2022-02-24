@@ -22,7 +22,6 @@ import Data.List.NonEmpty (NonEmpty ((:|)), groupWith, toList)
 import Data.Map as M (Map, delete, fromList, lookup, member, singleton)
 import Data.Maybe (catMaybes, fromJust, fromMaybe, isNothing)
 import Data.Tuple.Extra (dupe, firstM)
-import Debug.Trace
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen)
 import Polysemy (Embed (unEmbed), Member, Members, Sem)
@@ -115,7 +114,6 @@ desugarExpression gcxt = desugar'
                     )
                       <$> branches
             defaults <- if null bindings then pure Nothing else Just <$> go xs bindings
-            traceShowM ("defaults", defaults)
             if null matches
               then case defaults of
                 Just x -> pure x

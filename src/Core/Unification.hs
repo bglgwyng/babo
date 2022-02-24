@@ -35,7 +35,6 @@ import Data.Maybe
 import Data.Set (difference)
 import qualified Data.Set as S
 import Data.Tuple (swap)
-import Debug.Trace (trace, traceM, traceShow, traceShowId, traceShowM)
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen, runGen)
 import Polysemy (Embed (unEmbed), Member, Members, Sem, embed, interpret, makeSem, runM, subsume, subsume_)
@@ -118,97 +117,75 @@ force unfold x = do
 
 typeOf :: Members '[Error ElaborationError, Reader GlobalContext, UnifyEffect] r => Context -> Term -> Sem r Term
 typeOf cxt t = do
-  x <- do
-    globals <- ask
-    UnifyState {metas} <- getState
-
-    -- traceM ("typeof: " <> show (reverse cxt) <> " " <> show t)
-    case t of
-      -- _ | (Meta i, spine) <- peelApTelescope t,
-      --     not $ M.member i metas -> do
-      --   meta <- genMeta (length cxt)
-      --   -- traceShowM $ "!!"
-      --   -- traceShowM $ cxt |- t ?: meta
-      --   emit $ cxt |- t ?: meta
-      --   -- emit $ cxt |- t ?:
-      --   pure $ meta
-      Local i -> if i < length cxt then pure $ raise (i + 1) $ cxt !! i else error (show (cxt, t))
-      Meta i ->
-        maybe
-          ( do
-              meta <- genMeta 0
-              emit $ [] |- t ?: meta
-              pure meta
-          )
-          (pure . type')
-          $ M.lookup i metas
-      Global i -> pure . C.type' $ globals ! i
-      Type -> pure Type
-      Let x y -> typeOf cxt =<< force True (subst x 0 y)
-      -- xType <- typeOf cxt x
-      -- typeOf (xType : cxt) y
-      Ap l r -> do
-        lType <- typeOf cxt l >>= force True
-        case lType of
-          Pi from to -> do
-            emit $ cxt |- r ?: from
-            pure (subst r 0 to)
-          _ -> do
-            from <- genMeta (length cxt)
-            to <- genMeta (length cxt + 1)
-            emit $ cxt |- Pi from to ?= lType
-            emit $ cxt |- from ?: Type
-            traceShowM $ ("?", cxt |- r ?: from)
-            emit $ cxt |- r ?: from
-            emit $ (from : cxt) |- to ?: Type
-            pure (subst r 0 to)
-      Lam arg body -> do
-        -- traceShowM ("??", cxt, t, cxt |- arg ?: Type)
-        emit $ cxt |- arg ?: Type
-        bodyType <- typeOf (arg : cxt) body
-        emit $ arg : cxt |- bodyType ?: Type
-        pure $ Pi arg bodyType
-      Pi from to -> do
-        emit $ cxt |- from ?: Type
-        emit $ from : cxt |- to ?: Type
-        pure Type
-      Case x (Just ind) branches defaults -> do
-        xType <- typeOf cxt (Local x) >>= force True
-        traceShowM (cxt, t)
-        let InductiveType {qname = indName, params, indices, variants} = ind
-            QName {namespace} = indName
-        spine <-
-          (id <$>)
-            <$> ( case peelApTelescope xType of
-                    (Global name, spine)
-                      | name == indName -> pure spine
-                      | otherwise ->
-                        throw InvalidCase
-                    _ -> do
-                      spine <- forM (params <> indices) (const $ genMeta (length cxt))
-                      emit $ cxt |- xType ?= applyApTelescope (Global indName) spine
-                      pure spine
-                )
-        type' <- genMeta (length cxt)
-        UnifyState {constraints, metas} <- getState
-        forM_
-          branches
-          ( \(Constructor name, body) ->
-              let Just (_, (args, _)) = find ((== name) . fst) variants
-                  arity = length args
-                  argTypes = (foldr (`subst` 0) `flip` spine) <$> zipWith (raise >>> (. T.type')) [arity -1, arity - 2 ..] args
-                  body' = foldr (`subst` 0) body spine
-               in traceShow ("!!!", argTypes, T.type' <$> args) $
-                    traceShow
-                      (constraints, metas)
-                      $ traceShow ("???", reverse argTypes <> cxt |- body ?: raise (length args) type') $
-                        emit $ reverse argTypes <> cxt |- body ?: raise (length args) type'
-          )
-        -- forM_ defaults $ emit . (cxt |-) . (?: type')
-        pure type'
-      Case x _ branches _ -> error "not implemented"
-  traceM ("typeof: " <> show (cxt |- t ?: x))
-  pure x
+  globals <- ask
+  UnifyState {metas} <- getState
+  case t of
+    Local i -> if i < length cxt then pure $ raise (i + 1) $ cxt !! i else error (show (cxt, t))
+    Meta i ->
+      maybe
+        ( do
+            meta <- genMeta 0
+            emit $ [] |- t ?: meta
+            pure meta
+        )
+        (pure . type')
+        $ M.lookup i metas
+    Global i -> pure . C.type' $ globals ! i
+    Type -> pure Type
+    Let x y -> typeOf cxt =<< force True (subst x 0 y)
+    Ap l r -> do
+      lType <- typeOf cxt l >>= force True
+      case lType of
+        Pi from to -> do
+          emit $ cxt |- r ?: from
+          pure (subst r 0 to)
+        _ -> do
+          from <- genMeta (length cxt)
+          to <- genMeta (length cxt + 1)
+          emit $ cxt |- Pi from to ?= lType
+          emit $ cxt |- from ?: Type
+          emit $ cxt |- r ?: from
+          emit $ (from : cxt) |- to ?: Type
+          pure (subst r 0 to)
+    Lam arg body -> do
+      emit $ cxt |- arg ?: Type
+      bodyType <- typeOf (arg : cxt) body
+      emit $ arg : cxt |- bodyType ?: Type
+      pure $ Pi arg bodyType
+    Pi from to -> do
+      emit $ cxt |- from ?: Type
+      emit $ from : cxt |- to ?: Type
+      pure Type
+    Case x (Just ind) branches defaults -> do
+      xType <- typeOf cxt (Local x) >>= force True
+      let InductiveType {qname = indName, params, indices, variants} = ind
+          QName {namespace} = indName
+      spine <-
+        (id <$>)
+          <$> ( case peelApTelescope xType of
+                  (Global name, spine)
+                    | name == indName -> pure spine
+                    | otherwise ->
+                      throw InvalidCase
+                  _ -> do
+                    spine <- forM (params <> indices) (const $ genMeta (length cxt))
+                    emit $ cxt |- xType ?= applyApTelescope (Global indName) spine
+                    pure spine
+              )
+      type' <- genMeta (length cxt)
+      UnifyState {constraints, metas} <- getState
+      forM_
+        branches
+        ( \(Constructor name, body) ->
+            let Just (_, (args, _)) = find ((== name) . fst) variants
+                arity = length args
+                argTypes = (foldr (`subst` 0) `flip` spine) <$> zipWith (raise >>> (. T.type')) [arity -1, arity - 2 ..] args
+                body' = foldr (`subst` 0) body spine
+              in emit $ reverse argTypes <> cxt |- body ?: raise (length args) type'
+        )
+      forM_ defaults $ emit . (cxt |-) . (?: type')
+      pure type'
+    Case x _ branches _ -> error "not implemented"
 
 -- | Given a constraint, produce a collection of equivalent but
 -- simpler constraints. Any solution for the returned set of
@@ -247,103 +224,84 @@ simplify (Constraint cxt (Equal t1 t2))
         _ -> throw $ CannotUnify t1 t2
 
 run :: Members Effects r => Sem (UnifyEffect : r) a -> Sem r a
-run = interpret $ \x -> do
-  -- state@UnifyState {constraints, metas} <- get
-  traceM ("----------") 
-  traceShowM  =<< get
-  case x of
-    Emit (Constraint cxt c) -> run $ do
-      -- traceM ("emit:" <> show (Constraint cxt c))
-      state@UnifyState {constraints, metas} <- get
-      case c of
-        Equal x y | x == y -> pure ()
-        Equal y x | Just (k, v) <- solution T.Lam x y -> solve k v
-        Equal x y
-          | Just (k, v) <- solution T.Lam x y -> solve k v
-          | otherwise -> do
-            x <- force True x
-            y <- force True y
-            trySimplify $ cxt |- x ?= y
-        HasType v t
-          | Just (i, v') <- solution T.Pi v t ->
-            case M.lookup i metas of
-              Just (Solved _ z) -> emit $ [] |- v' ?= z
-              Just (Unsolved z) -> emit $ [] |- v' ?= z
-              Nothing -> put state {metas = M.insert i (Unsolved v') metas}
-          | otherwise -> do
-            -- FIXME: this is a workaround to unfold less global variables
-            -- v <- force True v
-            t <- force True t
-            trySimplify $ cxt |- v ?: t
-      where
-        shouldBeFree :: Term -> Maybe (Term, Index)
-        shouldBeFree (Local i) = if i < length cxt then Just (cxt !! i, i) else error (show (cxt, i))
-        shouldBeFree _ = Nothing
-        solution :: Abstraction -> Term -> Term -> Maybe (Id, Term)
-        solution abstract lhs rhs
-          | (m@(Meta i), spine) <- peelApTelescope lhs,
-            not $ occurs m rhs,
-            Just frees <- traverse shouldBeFree spine,
-            -- FIXME:
-            not $ any (occurs m . fst) frees,
-            let renamings = M.fromList $ zip (reverse (snd <$> frees)) [0 ..],
-            length frees == length renamings,
-            Just body <- rename renamings rhs,
-            let v = foldr abstract body $ fst <$> frees,
-            traceShow ("solution", v) True,
-            -- TODO: maybe it's redundant
-            wellScoped 0 v =
-            pure (i, v)
-        solution _ x y = Nothing
-        trySimplify :: Members (UnifyEffect : Effects) r => Constraint -> Sem r ()
-        trySimplify c = unlessM (simplify c) do
-          k <- gen
-          state@UnifyState {constraints, metas} <- get
-          traceShowM ("atomic!", state)
-          modify (\state@UnifyState {constraints} -> state {constraints = M.insert k c constraints})
-    Solve k v -> run do
-      state@UnifyState {constraints, metas} <- get
-      type' <- case M.lookup k metas of
-        Just Unsolved {type'} -> pure type'
-        -- FIXME: make this case not happen
-        Just Solved {value, type'} -> error "impossible"
-          -- emit ([] |- v ?= value) $> type'
-        Nothing -> typeOf [] v
-      put state {metas = M.insert k Solved {value = v, type'} metas}
-      traceShowM ("VVV", k)
-      traceShowM =<< get
-      when (k == 1) $ traceM "meta 1 is solved!" >> traceShowM ("$$", length constraints)
-      let k' = k
-      forM_
-        (assocs constraints)
-        ( \(k, x@(Constraint cxt v)) -> do
-            -- traceShowM ("&&&", k')
-            -- when (k' == 1) $ traceM "when meta 1 is solved!" >> traceShowM (x)
-            whenM
-              case v of
-                Equal x y -> do
-                  x <- force True x
-                  y <- force True y
-                  when (k' == 1) $ traceM "when meta 1 is solved!" >> traceShowM (cxt |- x ?= y)
-                  simplify (cxt |- x ?= y)
-                HasType v t -> do
-                  v <- force True v
-                  t <- force True t
-                  when (k' == 1) $ traceM "when meta 1 is solved!" >> traceShowM (cxt |- v ?: t)
-                  simplify (cxt |- v ?: t)
-              $ pure ()
-        )
-      traceShowM ("VVV2", k)
-      traceShowM =<< get
-    Resolve k ->
-      modify
-        ( \state@UnifyState {constraints} ->
-            state {constraints = M.delete k constraints}
-        )
-    GetState -> get
-    GenMeta level ->
-      -- FIXME: If `reverse` is ommited, inference fails. Find out why.
-      (`applyApTelescope` (Local <$> reverse [0 .. level - 1])) . Meta <$> gen
+run = interpret \case
+  Emit (Constraint cxt c) -> run $ do
+    state@UnifyState {constraints, metas} <- get
+    case c of
+      Equal x y | x == y -> pure ()
+      Equal y x | Just (k, v) <- solution T.Lam x y -> solve k v
+      Equal x y
+        | Just (k, v) <- solution T.Lam x y -> solve k v
+        | otherwise -> do
+          x <- force True x
+          y <- force True y
+          trySimplify $ cxt |- x ?= y
+      HasType v t
+        | Just (i, v') <- solution T.Pi v t ->
+          case M.lookup i metas of
+            Just (Solved _ z) -> emit $ [] |- v' ?= z
+            Just (Unsolved z) -> emit $ [] |- v' ?= z
+            Nothing -> put state {metas = M.insert i (Unsolved v') metas}
+        | otherwise -> do
+          -- FIXME: this is a workaround to unfold less global variables
+          -- v <- force True v
+          t <- force True t
+          trySimplify $ cxt |- v ?: t
+    where
+      shouldBeFree :: Term -> Maybe (Term, Index)
+      shouldBeFree (Local i) = if i < length cxt then Just (cxt !! i, i) else error (show (cxt, i))
+      shouldBeFree _ = Nothing
+      solution :: Abstraction -> Term -> Term -> Maybe (Id, Term)
+      solution abstract lhs rhs
+        | (m@(Meta i), spine) <- peelApTelescope lhs,
+          not $ occurs m rhs,
+          Just frees <- traverse shouldBeFree spine,
+          not $ any (occurs m . fst) frees,
+          let renamings = M.fromList $ zip (reverse (snd <$> frees)) [0 ..],
+          length frees == length renamings,
+          Just body <- rename renamings rhs,
+          let v = foldr abstract body $ fst <$> frees,
+          -- TODO: maybe it's redundant
+          wellScoped 0 v =
+          pure (i, v)
+      solution _ x y = Nothing
+      trySimplify :: Members (UnifyEffect : Effects) r => Constraint -> Sem r ()
+      trySimplify c = unlessM (simplify c) do
+        k <- gen
+        modify (\state@UnifyState {constraints} -> state {constraints = M.insert k c constraints})
+  Solve k v -> run do
+    state@UnifyState {constraints, metas} <- get
+    type' <- case M.lookup k metas of
+      Just Unsolved {type'} -> pure type'
+      -- FIXME: make this case not happen
+      Just Solved {value, type'} -> emit ([] |- v ?= value) $> type'
+      Nothing -> typeOf [] v
+    put state {metas = M.insert k Solved {value = v, type'} metas}
+    -- FIXME: avoid revisiting every constraints
+    forM_
+      (assocs constraints)
+      ( \(k, x@(Constraint cxt v)) -> do
+          -- FIXME: avoid emitting new one
+          resolve k
+          case v of
+            Equal x y -> do
+              x <- force True x
+              y <- force True y
+              emit (cxt |- x ?= y)
+            HasType v t -> do
+              v <- force True v
+              t <- force True t
+              emit (cxt |- v ?: t)
+      )
+  Resolve k ->
+    modify
+      ( \state@UnifyState {constraints} ->
+          state {constraints = M.delete k constraints}
+      )
+  GetState -> get
+  GenMeta level ->
+    -- FIXME: If `reverse` is ommited, inference fails. Find out why.
+    (`applyApTelescope` (Local <$> reverse [0 .. level - 1])) . Meta <$> gen
 
 runUnifyM ::
   Members '[Error ElaborationError, Reader GlobalContext] r =>

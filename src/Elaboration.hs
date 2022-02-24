@@ -24,7 +24,6 @@ import qualified Data.Set as S
 import Data.Traversable (forM)
 import Data.Tuple (swap)
 import Data.Tuple.Extra (both)
-import Debug.Trace (traceShowM)
 import Effect.ElaborationError (ElaborationError (..))
 import Polysemy (Embed, Member, Members, Sem, embed, run)
 import Polysemy.Error (Error, throw)
@@ -35,11 +34,15 @@ import Syntax.AST
 import qualified Syntax.AST as AST
 import Syntax.Desugar (desugarArguments, desugarExpression, insertMeta)
 
-
-checkAllResolved :: Members [ Error ElaborationError, UnifyEffect] r => Sem r ()
+checkAllResolved :: Members [Error ElaborationError, UnifyEffect] r => Sem r ()
 checkAllResolved = do
   state@UnifyState {constraints}  <- getState
   unless (null constraints) $ throw (UnresolvedConstraints state)
+
+traceUnresolved :: Members [Trace, UnifyEffect] r => Sem r ()
+traceUnresolved = do
+  state@UnifyState {constraints}  <- getState
+  unless (null constraints) $ trace (show state)
 
 elaborate' ::
   Members '[Trace, Error ElaborationError, UnifyEffect, Reader GlobalContext] r =>
@@ -142,13 +145,10 @@ elaborate' AST.Definition {name, args, maybeType, value} = do
   type' <-
     foldr T.Pi `flip` argTypes
       <$> maybe (insertMeta cxt') (desugarExpression gcxt cxt') maybeType
-  traceShowM ([] |- value ?: type')
   emit $ [] |- value ?: type'
   checkAllResolved
   value <- force False value
   type' <- force False type'
-  trace $ "hhh"
-  trace . show =<< getState
   pure
     ( M.singleton
         (QName [] name)
@@ -166,6 +166,7 @@ elaborate' (Eval x) = do
   emit $ [] |- value ?: meta
   value' <- force True value
   trace ("%eval " <> show value <> " = " <> show value')
+  traceUnresolved
   pure mempty
 elaborate' (AST.TypeOf x) = do
   gcxt <- ask
@@ -175,7 +176,7 @@ elaborate' (AST.TypeOf x) = do
   value <- force False value
   type' <- force False meta
   trace ("%typeof " <> show value <> " : " <> show type')
-  trace . show =<< getState
+  traceUnresolved
   pure mempty
 elaborate' (CheckUnify x y) = do
   gcxt <- ask
@@ -183,7 +184,7 @@ elaborate' (CheckUnify x y) = do
   y <- desugarExpression gcxt mempty y
   emit $ [] |- x ?= y
   trace ("%check " <> show x <> " = " <> show y)
-  trace . show =<< getState
+  traceUnresolved
   pure mempty
 elaborate' (CheckTypeOf value type') = do
   gcxt <- ask
@@ -191,7 +192,7 @@ elaborate' (CheckTypeOf value type') = do
   type' <- desugarExpression gcxt mempty type'
   emit $ [] |- value ?: type'
   trace ("%check " <> show value <> " : " <> show type')
-  trace . show =<< getState
+  traceUnresolved
   pure mempty
 elaborate' _ = pure mempty
 
