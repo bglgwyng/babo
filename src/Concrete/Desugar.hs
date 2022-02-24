@@ -1,6 +1,12 @@
 module Concrete.Desugar where
 
 import Common
+import Concrete.Literal
+import Concrete.Pattern
+import qualified Concrete.Pattern as P
+import Concrete.Pretty
+import Concrete.Syntax
+import qualified Concrete.Syntax as C
 import Context
 import Control.Applicative
 import Control.Arrow (Arrow (first, second, (&&&)), (>>>))
@@ -26,12 +32,6 @@ import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen)
 import Polysemy (Embed (unEmbed), Member, Members, Sem)
 import Polysemy.Error (Error, throw)
-import qualified Concrete.Syntax as C
-import Concrete.Syntax
-import Concrete.Literal
-import Concrete.Pattern
-import qualified Concrete.Pattern as P
-import Concrete.Pretty
 
 pairNew :: T.Term
 pairNew = T.Global (QName ["Prelude", "Pair"] "New")
@@ -59,7 +59,7 @@ desugarExpression gcxt = desugar'
     desugar' :: Members Effects r => LocalContext -> C.Expression -> Sem r T.Term
     desugar' cxt x = do
       (x, spine) <- desugarHead cxt x
-      metas <- mapM (const $ insertMeta cxt) $ takeWhile ((== T.Implicit). snd) spine
+      metas <- mapM (const $ insertMeta cxt) $ takeWhile ((== T.Implicit) . snd) spine
       pure $ foldl T.Ap x metas
     desugarHead :: Members Effects r => LocalContext -> C.Expression -> Sem r (T.Term, [(LocalName, Plicity)])
     desugarHead cxt = \case
@@ -86,9 +86,9 @@ desugarExpression gcxt = desugar'
           forall :: Members Effects r => LocalContext -> [LocalName] -> Sem r T.Term
           forall _ [] = desugar' (reverse (toList xs) <> cxt) to
           forall cxt (x : xs) =
-            T.Pi <$> desugar'' from <*> forall (extend  1 cxt) xs
+            T.Pi <$> desugar'' from <*> forall (extend 1 cxt) xs
       C.Arrow from to ->
-        (,[]) <$> (T.Pi <$> desugar'' from <*> desugar' (extend  1 cxt) to)
+        (,[]) <$> (T.Pi <$> desugar'' from <*> desugar' (extend 1 cxt) to)
       C.Let name value body ->
         (,[]) <$> (T.Ap <$> (T.Lam <$> insertMeta cxt <*> desugar' (name : cxt) body) <*> desugar'' value)
       C.Case xs cases -> do
@@ -152,7 +152,7 @@ desugarExpression gcxt = desugar'
           introduce argPatterns (cxt, (patterns, body)) =
             ((binder <$> argPatterns) <> cxt, (argPatterns <> patterns, body))
       C.Lambda args body -> (,[]) <$> lambda cxt (toList args) body
-      C.LambdaCase args cases -> undefined
+      C.LambdaCase args cases -> error "not implemented"
       C.Infix x op y ->
         (,[]) <$> (T.Ap <$> (T.Ap <$> (fst <$> lookup op) <*> desugar'' x) <*> desugar'' y)
       C.Tuple xs -> do
@@ -162,7 +162,7 @@ desugarExpression gcxt = desugar'
         xs' <- forM xs desugar''
         pure (foldr (flip T.Ap . T.Ap listCons) listNil xs', [])
       C.Type -> pure (T.Type, [])
-      C.Literal x -> undefined
+      C.Literal x -> error "not implemented"
       C.Parenthesized x -> desugarHead cxt x
       where
         scope = length cxt
@@ -217,6 +217,6 @@ data Pattern' = Pattern'
 
 desugarPattern :: C.Pattern -> Pattern'
 desugarPattern (Variable name) = Pattern' name Nothing
-desugarPattern (Data name patterns) = Pattern' "" (Just (name, desugarPattern . fromRight undefined <$> patterns))
+desugarPattern (Data name patterns) = Pattern' "" (Just (name, desugarPattern . fromRight (error "not implemented") <$> patterns))
 desugarPattern Wildcard = Pattern' "" Nothing
 desugarPattern _ = error "not implemented"

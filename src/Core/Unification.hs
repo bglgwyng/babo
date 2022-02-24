@@ -120,7 +120,7 @@ typeOf cxt t = do
   globals <- ask
   UnifyState {metas} <- getState
   case t of
-    Local i -> if i < length cxt then pure $ raise (i + 1) $ cxt !! i else error (show (cxt, t))
+    Local i -> pure $ raise (i + 1) $ cxt !! i
     Meta i ->
       maybe
         ( do
@@ -247,7 +247,7 @@ run = interpret \case
           trySimplify $ cxt |- v ?: t
     where
       shouldBeFree :: Term -> Maybe (Term, Index)
-      shouldBeFree (Local i) = if i < length cxt then Just (cxt !! i, i) else error (show (cxt, i))
+      shouldBeFree (Local i) = Just (cxt !! i, i)
       shouldBeFree _ = Nothing
       solution :: Abstraction -> Term -> Term -> Maybe (Id, Term)
       solution abstract lhs rhs
