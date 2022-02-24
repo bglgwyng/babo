@@ -38,7 +38,6 @@ import Syntax.Pattern hiding (List, Literal, Tuple, Variable)
     '_' { TokenUnderscore }
     '=' { TokenEq }
     '->' { TokenArrow }
-    '?'  { TokenQuestionMark }
     infixOp { TokenInfixOp $$ }
     '(' { TokenLParen }
     ')' { TokenRParen }
@@ -217,7 +216,7 @@ Atom :: { Expression }
           | '(' ')'                               { Literal UnitLiteral } 
           | '(' Expression ',' CommaSeperated ')' { Tuple ($2 : $4) }
           | '[' CommaSeperated ']'                { List $2 }
-          | '?'                                   { Meta }
+          | '_'                                   { Meta }
           | lsym                                  { Identifier (QName [] $1) }
           | usym                                  { Identifier (QName [] $1) }
           | lsymQ                                 { Identifier (uncurry QName $1) }
