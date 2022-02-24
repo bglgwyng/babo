@@ -1,5 +1,5 @@
 {
-module Syntax.Tokens where
+module Concrete.Tokens where
 
 import Data.List.NonEmpty (NonEmpty(..), fromList)
 import Data.List.Split (wordsBy)
