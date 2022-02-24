@@ -92,25 +92,15 @@ force unfold x = do
         Let x y -> go (subst x 0 y)
         Lam arg body -> Lam (go arg) (go body)
         Pi arg body -> Pi (go arg) (go body)
-        x@(Meta i) ->
-          case M.lookup i metas of
-            Just (Solved t _) -> go t
-            _ -> x
-        x@(Global qname) ->
-          fromJust $
-            ( \case
-                Definition {value}
-                  | unfold -> go value
-                  | otherwise -> x
-                _ -> x
-            )
-              <$> M.lookup qname globals
-        y@(Case x (Just ind) branches defaults) ->
-          case peelApTelescope (go (Local x)) of
-            (Global constructor, spine) ->
-              let body = maybe undefined snd $ find (\(Constructor name', _) -> name' == Common.name constructor) branches
-               in go $ foldr (`subst` 0) body spine
-            _ -> y
+        Meta i | Just (Solved t _) <- M.lookup i metas -> go t
+        Global qname
+          | Definition {value} <- globals ! qname,
+            unfold ->
+            go value
+        Case x (Just ind) branches defaults
+          | (Global constructor, spine) <- peelApTelescope (go (Local x)) ->
+            let body = maybe undefined snd $ find (\(Constructor name', _) -> name' == Common.name constructor) branches
+             in go $ foldr (`subst` 0) body spine
         x -> x
   pure $ go x
 
