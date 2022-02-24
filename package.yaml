@@ -55,6 +55,7 @@ default-extensions:
 
 library:
   source-dirs: src
+  
 
 executables:
   babo-exe:
@@ -79,3 +80,14 @@ tests:
     - -fplugin=Polysemy.Plugin
     dependencies:
     - babo
+
+other-modules:
+- Concrete.Tokens
+- Concrete.Grammar
+
+build-tools:
+- alex
+- happy
+
+# other-modules: Concrete.Tokens, Concrete.Grammar
+
