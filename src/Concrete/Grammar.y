@@ -96,7 +96,8 @@ ArgumentNames :: { NonEmpty String}
                | ArgumentName ArgumentNames { $1 :| toList $2 }
 
 Argument :: { Argument }
-          : ArgumentNames ':' Expression { ($1, Just $3, []) }
+          : ArgumentNames                { ($1, Nothing, []) }
+          | ArgumentNames ':' Expression { ($1, Just $3, []) }
 Arguments_  :: { [Argument] }
              : Argument                { [$1] }
              | Argument ',' Arguments_ { $1 : $3 }
