@@ -49,6 +49,7 @@ type Effects = '[Error ElaborationError, Reader GlobalContext, State UnifyState,
 data UnifyEffect m a where
   Emit :: Constraint -> UnifyEffect m ()
   Solve :: Id -> Term -> UnifyEffect m ()
+  Infer :: Id -> Term -> UnifyEffect m ()
   Resolve :: Id -> UnifyEffect m ()
   GetState :: UnifyEffect m UnifyState
   GenMeta :: Level -> UnifyEffect m Term
@@ -211,48 +212,49 @@ simplify (Constraint cxt (Equal t1 t2))
         (_, Meta {}) -> pure False
         _ -> throw $ CannotUnify t1 t2
 
+trySolve :: Members '[Error ElaborationError, Reader GlobalContext, UnifyEffect] r => Constraint -> Sem r Bool
+trySolve (Constraint cxt c) =
+  case c of
+    Equal y x | Just (i, v) <- solution T.Lam x y -> solve i v $> True
+    Equal x y | Just (i, v) <- solution T.Lam x y -> solve i v $> True
+    HasType v t | Just (i, t) <- solution T.Pi v t -> infer i t $> True
+    _ -> pure False
+  where
+    shouldBeFree :: Term -> Maybe (Term, Index)
+    shouldBeFree (Local i) = Just (cxt !! i, i)
+    shouldBeFree _ = Nothing
+    solution :: Abstraction -> Term -> Term -> Maybe (Id, Term)
+    solution abstract lhs rhs
+      | (m@(Meta i), spine) <- peelApTelescope lhs,
+        not $ occurs m rhs,
+        Just frees <- traverse shouldBeFree spine,
+        not $ any (occurs m . fst) frees,
+        let renamings = M.fromList $ zip (reverse (snd <$> frees)) [0 ..],
+        length frees == length renamings,
+        Just body <- rename renamings rhs,
+        let v = foldr abstract body $ fst <$> frees,
+        -- TODO: maybe it's redundant
+        wellScoped 0 v =
+        pure (i, v)
+    solution _ x y = Nothing
+
 run :: Members Effects r => Sem (UnifyEffect : r) a -> Sem r a
 run = interpret \case
-  Emit (Constraint cxt c) -> run $ do
+  Emit x@(Constraint cxt c) -> run $ do
     state@UnifyState {constraints, metas} <- get
-    case c of
-      Equal x y | x == y -> pure ()
-      Equal y x | Just (k, v) <- solution T.Lam x y -> solve k v
-      Equal x y
-        | Just (k, v) <- solution T.Lam x y -> solve k v
-        | otherwise -> do
+    unlessM
+      (trySolve x)
+      case c of
+        Equal x y -> do
           x <- force True x
           y <- force True y
           trySimplify $ cxt |- x ?= y
-      HasType v t
-        | Just (i, v') <- solution T.Pi v t ->
-          case M.lookup i metas of
-            Just (Solved _ z) -> emit $ [] |- v' ?= z
-            Just (Unsolved z) -> emit $ [] |- v' ?= z
-            Nothing -> put state {metas = M.insert i (Unsolved v') metas}
-        | otherwise -> do
+        HasType v t -> do
           -- FIXME: this is a workaround to unfold less global variables
           -- v <- force True v
           t <- force True t
           trySimplify $ cxt |- v ?: t
     where
-      shouldBeFree :: Term -> Maybe (Term, Index)
-      shouldBeFree (Local i) = Just (cxt !! i, i)
-      shouldBeFree _ = Nothing
-      solution :: Abstraction -> Term -> Term -> Maybe (Id, Term)
-      solution abstract lhs rhs
-        | (m@(Meta i), spine) <- peelApTelescope lhs,
-          not $ occurs m rhs,
-          Just frees <- traverse shouldBeFree spine,
-          not $ any (occurs m . fst) frees,
-          let renamings = M.fromList $ zip (reverse (snd <$> frees)) [0 ..],
-          length frees == length renamings,
-          Just body <- rename renamings rhs,
-          let v = foldr abstract body $ fst <$> frees,
-          -- TODO: maybe it's redundant
-          wellScoped 0 v =
-          pure (i, v)
-      solution _ x y = Nothing
       trySimplify :: Members (UnifyEffect : Effects) r => Constraint -> Sem r ()
       trySimplify c = unlessM (simplify c) do
         k <- gen
@@ -281,6 +283,13 @@ run = interpret \case
               t <- force True t
               emit (cxt |- v ?: t)
       )
+  Infer k t -> run do
+    state@UnifyState {constraints, metas} <- get
+    case M.lookup k metas of
+      Just Unsolved {type'} -> emit ([] |- t ?= type')
+      -- -- FIXME: make this case not happen
+      Just Solved {value, type'} -> emit ([] |- t ?= type')
+      Nothing -> put state {metas = M.insert k (Unsolved t) metas}
   Resolve k ->
     modify
       ( \state@UnifyState {constraints} ->
