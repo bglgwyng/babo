@@ -32,6 +32,7 @@ dependencies:
 - polysemy >= 1.5.0.0
 - polysemy-plugin
 - transformers
+- megaparsec
 
 default-extensions: 
 - LambdaCase
@@ -80,7 +81,3 @@ tests:
     - -fplugin=Polysemy.Plugin
     dependencies:
     - babo
-
-build-tools:
-- alex
-- happy

@@ -1,15 +1,7 @@
 module Main where
 
-import Concrete.Grammar
-import Concrete.Tokens
-import Elaboration
-import Polysemy
-import Polysemy.Error
-import Polysemy.Trace
+import App
 
+-- NOTE: HLS doesn't work well with Main.hs in my environment.
 main :: IO ()
-main = runM . traceToIO $ do
-  s <- embed getContents
-  case parse (scanTokens s) of
-    Right ast -> runError (elaborate ast) >>= either (trace . show) (const $ pure ())
-    Left message -> trace message
+main = app

@@ -3,6 +3,8 @@
 module Elaboration (elaborate) where
 
 import Common
+import Concrete.Desugar (desugarArguments, desugarExpression, insertMeta)
+import Concrete.Syntax as C
 import Context (GlobalContext, Inhabitant (..), LocalContext)
 import qualified Context
 import Control.Arrow (Arrow (second, (***)), (&&&), (>>>))
@@ -30,17 +32,15 @@ import Polysemy.Error (Error, throw)
 import Polysemy.Reader (Reader, ask, runReader)
 import Polysemy.State (evalState, get, runState)
 import Polysemy.Trace (Trace, trace)
-import Concrete.Syntax as C
-import Concrete.Desugar (desugarArguments, desugarExpression, insertMeta)
 
 checkAllResolved :: Members [Error ElaborationError, UnifyEffect] r => Sem r ()
 checkAllResolved = do
-  state@UnifyState {constraints}  <- getState
+  state@UnifyState {constraints} <- getState
   unless (null constraints) $ throw (UnresolvedConstraints state)
 
 traceSolutions :: Members [Trace, UnifyEffect] r => Sem r ()
 traceSolutions = do
-  state@UnifyState {metas}  <- getState
+  state@UnifyState {metas} <- getState
   unless (null metas) $ trace (show state)
 
 elaborate' ::

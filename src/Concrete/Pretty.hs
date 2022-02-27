@@ -1,6 +1,9 @@
 module Concrete.Pretty where
 
 import Common
+import Concrete.Pattern hiding (List, Literal, Tuple, Variable)
+import qualified Concrete.Pattern as P
+import Concrete.Syntax
 import Control.Arrow ((>>>))
 import Data.Functor
 import Data.List (intercalate)
@@ -20,10 +23,6 @@ import Prettyprinter
     (<+>),
   )
 import Prettyprinter.Render.String (renderString)
-import Concrete.Syntax
-import Concrete.Grammar hiding (indent)
-import Concrete.Pattern hiding (List, Literal, Tuple, Variable)
-import qualified Concrete.Pattern as P
 
 tabSize = 2
 
@@ -57,9 +56,18 @@ instance Pretty Pattern where
   pretty (P.List xs) = pretty "[ " <> commaSeparated (pretty <$> xs) <> pretty " ]"
   pretty Wildcard = pretty "_"
 
+prettyBranch :: Branch -> Doc ann
+prettyBranch (pattern, expression) =
+  sep
+    [ commaSeparated $ pretty <$> pattern,
+      pretty "->"
+        <+> align (pretty expression)
+        <> pretty ';'
+    ]
+
 instance Pretty Expression where
   pretty (Identifier name) = pretty name
-  pretty (Application x xs) = hang tabSize $ sep $ pretty x : (prettyDisk <$> toList xs)
+  pretty (Application x xs) = hang tabSize $ pretty x <> pretty "(" <> sep (prettyDisk <$> toList xs) <> pretty ")"
     where
       prettyDisk (Nothing, x) = pretty x
       prettyDisk (Just x, y) = pretty '(' <> pretty x <+> pretty "=" <+> pretty y <> pretty ')'
@@ -72,13 +80,13 @@ instance Pretty Expression where
       ]
   pretty (ForAll names type' y) =
     pretty "forall" <+> align (sep (pretty <$> toList names) <+> pretty ":" <+> pretty type' <> pretty "," <+> pretty y)
-  pretty (Infix x op y) = pretty x <+> pretty "." <> pretty op <+> pretty y
+  pretty (Infix x op y) = pretty x <+> pretty op <+> pretty y
   pretty (Tuple xs) = pretty "( " <> align (commaSeparated (pretty <$> xs) <> pretty " )")
   pretty (List xs) = pretty "[ " <> align (commaSeparated (pretty <$> xs) <> pretty " ]")
   pretty (Lambda names x) =
     pretty "\\" <> align (sep [prettyLambdaArguments names <+> pretty "->", pretty x])
   pretty (Case x cases) =
-    pretty "case" <+> pretty x <+> pretty "of" <+> align (vsep (pretty <$> cases))
+    pretty "case" <+> commaSeparated (pretty <$> x) <+> pretty "of" <+> align (vsep (prettyBranch <$> cases))
   pretty (LambdaCase names cases) =
     pretty "\\"
       <> align
@@ -87,15 +95,6 @@ instance Pretty Expression where
             Just xs -> prettyLambdaArguments xs <> line
         )
       <> pretty "{" <+> align (sep (prettyBranch <$> cases) <+> pretty "}")
-    where
-      prettyBranch :: Branch -> Doc ann
-      prettyBranch (pattern, expression) =
-        sep
-          [ pretty pattern,
-            pretty "->"
-              <+> align (pretty expression)
-              <> pretty ';'
-          ]
   pretty Type = pretty "Type"
   pretty (Literal x) = pretty x
   pretty (Parenthesized x) = pretty "(" <> align (pretty x <> pretty ")")
@@ -180,4 +179,7 @@ instance Pretty Source where
   pretty (Source decls) = vsep $ pretty <$> decls
 
 instance Show Expression where
+  show = renderString . layoutPretty defaultLayoutOptions . pretty
+
+instance Show Source where
   show = renderString . layoutPretty defaultLayoutOptions . pretty

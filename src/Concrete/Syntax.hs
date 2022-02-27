@@ -1,6 +1,8 @@
 module Concrete.Syntax (module Concrete.Literal, module Concrete.Pattern, module Concrete.Syntax) where
 
 import Common
+import Concrete.Literal
+import Concrete.Pattern (Pattern)
 import Control.Arrow
 import Data.Function
 import Data.Functor
@@ -12,8 +14,6 @@ import GHC.OverloadedLabels (IsLabel (fromLabel))
 import Prettyprinter (pretty)
 import Prettyprinter.Render.String (renderString)
 import Prettyprinter.Render.Text (putDoc, renderLazy)
-import Concrete.Literal
-import Concrete.Pattern (Pattern)
 
 newtype Annotation
   = Annotation Expression
@@ -48,10 +48,10 @@ data ImportRule
 type Argument = (NonEmpty LocalName, Maybe Expression, [Annotation])
 
 data Variant = Variant
-  { annotatoins :: [Annotation],
-    name :: LocalName,
+  { name :: LocalName,
     args :: [Argument],
-    maybeType :: Maybe Expression
+    maybeType :: Maybe Expression,
+    annotatoins :: [Annotation]
   }
 
 data TopLevelStatement

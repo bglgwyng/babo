@@ -1,16 +1,16 @@
-data Maybe(a: Type) {
+data Maybe(a: Type) where {
   Just(x: a);
   Nothing;
 }
 
-def map('a 'b: Type, f: a -> b, xs: Maybe(a)) = case xs {
+def map('a 'b, f: a -> b, xs: Maybe(a)) = case xs of {
   Just(x) -> Just(f(x));
   Nothing -> Nothing;
 }
 
-%typeof map
+%typeof \(x: Type) (y:Type) -> map(a=x,b=y)
 
-def maybe('a 'b: Type, x: b, f: a -> b, xs: Maybe(a)) = case xs {
+def maybe('a 'b, x, f: a -> b, xs: Maybe(a)) = case xs of {
   Just(x) -> f(x);
   Nothing -> x;
 }
