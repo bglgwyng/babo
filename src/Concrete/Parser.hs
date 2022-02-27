@@ -201,11 +201,8 @@ identifier =
 meta :: Parser Expression
 meta = Meta <$ symbol "_"
 
-quoatable :: Parser String -> Parser String
-quoatable p = (try (char '\'' <&> (:)) <|> pure id) <*> p
-
-atom :: Parser Expression
-atom =
+expression :: Parser Expression
+expression =
   ( try identifier
       <|> try forall
       <|> try lambda
@@ -215,20 +212,14 @@ atom =
       <|> parenthesize
   )
     <**> ( try ((foldl (&) `flip`) <$> some application)
-             <|> pure id
-         )
-
-expression :: Parser Expression
-expression =
-  atom
-    <**> ( try infix'
+             <|> try infix'
              <|> try arrow
              <|> pure id
          )
 
 lhsArgument :: Plicity -> Parser Argument
 lhsArgument plicity =
-  (,,) <$> some1 (quoatable localName)
+  (,,) <$> some1 localName
     <*> optional (symbol ":" *> expression)
     <*> annotations'
 
