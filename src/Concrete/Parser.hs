@@ -28,7 +28,7 @@ import qualified Data.Char as Char
 import Data.Fixed (Pico)
 import Data.Foldable (fold)
 import Data.Function ((&))
-import Data.Functor (void, (<&>))
+import Data.Functor (void, ($>), (<&>))
 import Data.List.NonEmpty (NonEmpty (..), some1)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map as Map
@@ -53,8 +53,6 @@ import Text.Megaparsec.Char (alphaNumChar, char, space1, string)
 import qualified Text.Megaparsec.Char.Lexer as L
 import Prelude hiding (exponent, takeWhile)
 
--- | @newtype@ wrapper around the `Parsec` type to improve inferred types and
---    error messages
 newtype Parser a = Parser {unParser :: Parsec Void String a}
   deriving
     ( Alternative,
@@ -187,7 +185,11 @@ parenthesize :: Parser Expression
 parenthesize = Parenthesized <$> parenthesized expression
 
 identifier :: Parser Expression
-identifier = Identifier <$> qname
+identifier =
+  qname
+    >>= \case
+      QName [] "Type" -> pure Type
+      x -> pure $ Identifier x
 
 meta :: Parser Expression
 meta = Meta <$ symbol "_"
@@ -197,8 +199,7 @@ quoatable p = (try (char '\'' <&> (:)) <|> pure id) <*> p
 
 atom :: Parser Expression
 atom =
-  ( try (Type <$ symbol "Type")
-      <|> try identifier
+  ( try identifier
       <|> try forall
       <|> try lambda
       <|> try let'
@@ -261,9 +262,10 @@ check :: Parser TopLevelStatement
 check =
   symbol "%check"
     *> expression
-      <**> ( try (CheckUnify <$> (symbol "=" *> expression))
-               <|> (CheckTypeOf <$> (symbol ":" *> expression))
+      <**> ( try (symbol "=" $> CheckUnify)
+               <|> (symbol ":" $> CheckTypeOf)
            )
+      <*> expression
 
 statement :: Parser TopLevelStatement
 statement =
