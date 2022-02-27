@@ -107,16 +107,17 @@ keyword x =
 localName :: Parser String
 localName = lexeme $ mfilter (not . (`elem` keywords)) $ try lowerName <|> upperName
 
-qname :: Parser QName
-qname = lexeme do
+-- FIXME: better design
+qname :: Bool -> Parser QName
+qname isConstructor = lexeme do
   try ((upperName <&> (:|)) <*> go <&> \xs -> QName (NonEmpty.init xs) (NonEmpty.last xs))
-    <|> (localName <&> QName [])
+    <|> ((if isConstructor then lexeme upperName else localName) <&> QName [])
   where
     go =
       try
         ( char '.'
             *> ( try ((upperName <&> (:)) <*> go)
-                   <|> (lowerName <&> (: []))
+                   <|> (if isConstructor then mzero else lowerName <&> (: []))
                )
         )
         <|> pure []
@@ -150,7 +151,7 @@ application =
         <|> (Nothing,) <$> expression
 
 infix' :: Parser (Expression -> Expression)
-infix' = ((Infix `flip`) <$> qname <&> flip) <*> expression
+infix' = ((Infix `flip`) <$> qname False <&> flip) <*> expression
 
 forall :: Parser Expression
 forall = uncurry ForAll <$> (keyword "forall" *> argument <* symbol ",") <*> expression
@@ -166,7 +167,7 @@ case' = Case <$> (keyword "case" *> some expression <* keyword "of") <*> braced 
     pattern' :: Parser Pattern
     pattern' =
       try
-        (Data <$> (QName [] <$> lexeme upperName) <*> (fold <$> optional patternArguments))
+        (Data <$> qname True <*> (fold <$> optional patternArguments))
         <|> try
           (Variable <$> lexeme lowerName)
         <|> (Wildcard <$ symbol "_")
@@ -193,7 +194,7 @@ parenthesize = Parenthesized <$> parenthesized expression
 
 identifier :: Parser Expression
 identifier =
-  qname
+  qname False
     >>= \case
       QName [] "Type" -> pure Type
       x -> pure $ Identifier x
