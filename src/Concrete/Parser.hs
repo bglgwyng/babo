@@ -30,7 +30,6 @@ import Data.Foldable (fold)
 import Data.Function ((&))
 import Data.Functor (void, (<&>))
 import Data.List.NonEmpty (NonEmpty (..), some1)
-import qualified Data.List.NonEmpty
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map as Map
 import Data.Maybe
@@ -181,7 +180,7 @@ lambda = symbol "\\" *> (Lambda <$> some1 argument <*> (symbol "->" *> expressio
   where
     argument :: Parser Argument
     argument =
-      try ((,Nothing,[]) <$> some1 localName)
+      try ((,Nothing,[]) . (:| []) <$> localName)
         <|> parenthesized ((,,[]) <$> some1 localName <*> (Just <$> (symbol ":" *> expression)))
 
 parenthesize :: Parser Expression

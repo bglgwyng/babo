@@ -1,0 +1,8 @@
+def List : Type -> Type
+  = \A -> forall L : Type, (A -> L -> L) -> L -> L
+
+def nil : forall A : ?, List(A)
+  = \A L cons nil -> nil
+
+def cons(A : Type, x : A, xs : List(A)) : List(A)
+  = \(L: ?) (cons:?) (nil: ?) -> cons(x, xs(?, cons, nil))
