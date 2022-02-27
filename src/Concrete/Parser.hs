@@ -37,6 +37,7 @@ import Data.Maybe
 import Data.Ratio ((%))
 import Data.String (IsString (..))
 import Data.Void (Void)
+import GHC.Base (assert)
 import Text.Megaparsec
   ( MonadParsec (eof),
     Parsec,
@@ -70,9 +71,6 @@ newtype Parser a = Parser {unParser :: Parsec Void String a}
 -- instance a ~ Text => IsString (Parser a) where
 --   fromString x = Parser (fromString x)
 
-pKeyword :: String -> Parser String
-pKeyword keyword = lexeme (string keyword <* notFollowedBy nameTail)
-
 sc :: Parser ()
 sc =
   L.space
@@ -101,6 +99,11 @@ sepByComma1 = (`sepBy1` symbol ",")
 
 keywords = ["data", "decl", "def", "let", "forall", "case", "of", "where"]
 
+keyword :: String -> Parser String
+keyword x =
+  assert (x `elem` keywords) $
+    lexeme (string x <* notFollowedBy (satisfy nameTailPredicate))
+
 localName :: Parser String
 localName = lexeme $ mfilter (not . (`elem` keywords)) $ try lowerName <|> upperName
 
@@ -118,8 +121,11 @@ qname = lexeme do
         )
         <|> pure []
 
+nameTailPredicate :: Char -> Bool
+nameTailPredicate x = isAlphaNum x || x == '\''
+
 nameTail :: Parser String
-nameTail = takeWhileP Nothing (\x -> isAlphaNum x || x == '\'')
+nameTail = takeWhileP Nothing nameTailPredicate
 
 lowerName :: Parser LocalName
 lowerName = (satisfy isLower <&> (:)) <*> nameTail
@@ -147,13 +153,13 @@ infix' :: Parser (Expression -> Expression)
 infix' = ((Infix `flip`) <$> qname <&> flip) <*> expression
 
 forall :: Parser Expression
-forall = uncurry ForAll <$> (symbol "forall" *> argument <* symbol ",") <*> expression
+forall = uncurry ForAll <$> (keyword "forall" *> argument <* symbol ",") <*> expression
 
 let' :: Parser Expression
-let' = Let <$> (symbol "let" *> localName) <*> (symbol "=" *> expression <* symbol ",") <*> expression
+let' = Let <$> (keyword "let" *> localName) <*> (symbol "=" *> expression <* symbol ",") <*> expression
 
 case' :: Parser Expression
-case' = Case <$> (symbol "case" *> some expression <* symbol "of") <*> braced (sepEndBy branch (symbol ";"))
+case' = Case <$> (keyword "case" *> some expression <* keyword "of") <*> braced (sepEndBy branch (symbol ";"))
   where
     branch :: Parser Branch
     branch = (,) <$> (sepByComma1 pattern' <* symbol "->") <*> expression
@@ -235,8 +241,8 @@ lhsArguments =
 
 dataDeclaration :: Parser TopLevelStatement
 dataDeclaration =
-  (annotations' <* symbol "data")
-    <**> ( DataDeclaration <$> localName <*> lhsArguments <*> optional (symbol ":" *> expression) <* symbol "where"
+  (annotations' <* keyword "data")
+    <**> ( DataDeclaration <$> localName <*> lhsArguments <*> optional (symbol ":" *> expression) <* keyword "where"
              <*> braced (sepEndBy varaint (symbol ";"))
          )
   where
@@ -247,25 +253,25 @@ dataDeclaration =
 
 definition :: Parser TopLevelStatement
 definition =
-  (annotations' <* symbol "def")
+  (annotations' <* keyword "def")
     <**> ( Definition <$> localName <*> lhsArguments <*> optional (symbol ":" *> expression)
              <*> (symbol "=" *> expression)
          )
 
 declaration :: Parser TopLevelStatement
 declaration =
-  (annotations' <* symbol "decl")
+  (annotations' <* keyword "decl")
     <**> (Declaration <$> localName <*> lhsArguments <*> (symbol ":" *> expression))
 
 eval :: Parser TopLevelStatement
-eval = symbol "%eval" *> (Eval <$> expression)
+eval = keyword "%eval" *> (Eval <$> expression)
 
 typeof :: Parser TopLevelStatement
-typeof = symbol "%typeof" *> (TypeOf <$> expression)
+typeof = keyword "%typeof" *> (TypeOf <$> expression)
 
 check :: Parser TopLevelStatement
 check =
-  symbol "%check"
+  keyword "%check"
     *> expression
       <**> ( try (symbol "=" $> CheckUnify)
                <|> (symbol ":" $> CheckTypeOf)
