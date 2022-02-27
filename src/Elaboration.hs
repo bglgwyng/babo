@@ -49,7 +49,7 @@ elaborate' ::
   Sem r GlobalContext
 elaborate' DataDeclaration {name, args = params, maybeType, variants} = do
   gcxt <- ask
-  (params', cxt') <- desugarArguments gcxt [] params
+  (cxt', params') <- desugarArguments gcxt [] params
   let paramsArity = length params'
       (paramBinds, paramTypes) = unzipArgs params'
   type' <- foldr T.Pi `flip` paramTypes <$> maybe (pure T.Type) (desugarExpression gcxt []) maybeType
@@ -72,7 +72,7 @@ elaborate' DataDeclaration {name, args = params, maybeType, variants} = do
     forM
       variants
       ( \Variant {name, args} -> do
-          (args', cxt') <- desugarArguments (gcxt <> typeDefinition) (fst <$> reverse paramBinds) args
+          (cxt', args') <- desugarArguments (gcxt <> typeDefinition) (fst <$> reverse paramBinds) args
           let (argBinds, argTypes) = unzipArgs args'
           pure
             ( name,
@@ -117,7 +117,7 @@ elaborate' DataDeclaration {name, args = params, maybeType, variants} = do
       )
 elaborate' C.Declaration {name, args, type'} = do
   gcxt <- ask
-  (args', cxt') <- desugarArguments gcxt [] args
+  (cxt', args') <- desugarArguments gcxt [] args
   -- FIXME:
   let (argBinds, argTypes) = unzipArgs args'
   type' <- foldr T.Pi `flip` argTypes <$> desugarExpression gcxt cxt' type'
@@ -135,7 +135,7 @@ elaborate' C.Declaration {name, args, type'} = do
     )
 elaborate' C.Definition {name, args, maybeType, value} = do
   gcxt <- ask
-  (args', cxt') <- desugarArguments gcxt [] args
+  (cxt', args') <- desugarArguments gcxt [] args
   -- FIXME:
   let (argBinds, argTypes) = unzipArgs args'
   value <-

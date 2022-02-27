@@ -179,8 +179,8 @@ lambda = symbol "\\" *> (Lambda <$> some1 argument <*> (symbol "->" *> expressio
   where
     argument :: Parser Argument
     argument =
-      try ((,Nothing,Explicit,[]) . (:| []) <$> localName)
-        <|> parenthesized ((,,Explicit,[]) <$> some1 localName <*> (Just <$> (symbol ":" *> expression)))
+      try ((,Nothing,[]) . (:| []) <$> localName)
+        <|> parenthesized ((,,[]) <$> some1 localName <*> (Just <$> (symbol ":" *> expression)))
 
 parenthesize :: Parser Expression
 parenthesize = Parenthesized <$> parenthesized expression
@@ -222,17 +222,16 @@ expression =
 
 lhsArgument :: Plicity -> Parser Argument
 lhsArgument plicity =
-  (,,plicity,) <$> some1 (quoatable localName)
+  (,,) <$> some1 (quoatable localName)
     <*> optional (symbol ":" *> expression)
     <*> annotations'
 
-lhsArguments :: Parser [Argument]
+lhsArguments :: Parser [ArgumentGroup]
 lhsArguments =
-  concat
-    <$> many
-      ( try (parenthesized (sepByComma1 (lhsArgument Explicit)))
-          <|> braced (sepByComma1 (lhsArgument Implicit))
-      )
+  many
+    ( try ((Explicit,) <$> parenthesized (sepByComma1 (lhsArgument Explicit)))
+        <|> (Implicit,) <$> braced (sepByComma1 (lhsArgument Implicit))
+    )
 
 dataDeclaration :: Parser TopLevelStatement
 dataDeclaration =

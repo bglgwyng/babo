@@ -5,6 +5,8 @@ import Concrete.Pattern hiding (List, Literal, Tuple, Variable)
 import qualified Concrete.Pattern as P
 import Concrete.Syntax
 import Control.Arrow ((>>>))
+import Core.Term (Plicity (Explicit, Implicit))
+import Data.Function ((&))
 import Data.Functor
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty, nonEmpty, toList)
@@ -14,6 +16,7 @@ import Prettyprinter
     align,
     defaultLayoutOptions,
     hang,
+    hcat,
     indent,
     layoutPretty,
     line,
@@ -106,29 +109,32 @@ prettyLambdaArguments :: NonEmpty Argument -> Doc ann
 prettyLambdaArguments args = sep $ pretty' <$> toList args
   where
     pretty' :: Argument -> Doc ann
-    pretty' (name, Nothing, _, _) = sep (pretty <$> toList name)
-    pretty' (name, Just type', _, _) = pretty "(" <> sep (pretty <$> toList name) <+> pretty ":" <+> pretty type' <> pretty ")"
+    pretty' (name, Nothing, _) = sep (pretty <$> toList name)
+    pretty' (name, Just type', _) = pretty "(" <> sep (pretty <$> toList name) <+> pretty ":" <+> pretty type' <> pretty ")"
 
-prettyArguments :: [Argument] -> Doc ann
+prettyArguments :: [ArgumentGroup] -> Doc ann
 prettyArguments [] = mempty
 prettyArguments xs =
-  pretty "("
-    <> align
-      (commaSeparated $ pretty' <$> xs)
-    <> pretty ")"
+  align $ hcat $ prettyArgumentGroup <$> xs
   where
-    pretty' :: Argument -> Doc ann
-    pretty' (names, type', _, _) =
-      let names' = sep $ pretty <$> toList names
-          type'' = pretty type'
-       in names' <+> pretty ":" <+> align type''
+    prettyArgument :: Argument -> Doc ann
+    prettyArgument (names, type', _) =
+      sep (pretty <$> toList names)
+        <> maybe mempty ((pretty ":" <+>) . align . pretty) type'
+    prettyArgumentGroup :: ArgumentGroup -> Doc ann
+    prettyArgumentGroup (plicity, args) =
+      ( case plicity of
+          Implicit -> (pretty "{" <>) . (<> pretty "}")
+          Explicit -> (pretty "(" <>) . (<> pretty ")")
+      )
+        $ commaSeparated (prettyArgument <$> args)
 
 instance Pretty TopLevelStatement where
   pretty DataDeclaration {name, args, maybeType, variants, annotations} =
     pretty "data"
       <+> pretty name
         <> prettyArguments args
-        <> maybe mempty ((pretty " :" <+>) . pretty) maybeType
+        <> maybe mempty ((pretty ":" <+>) . pretty) maybeType
       <+> pretty "{"
         <> ( if null variants
                then mempty

@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fplugin=Polysemy.Plugin #-}
+
 module Concrete.Desugar where
 
 import Common
@@ -27,11 +29,13 @@ import Data.List.Extra (allSame, elemIndex, groupOn)
 import Data.List.NonEmpty (NonEmpty ((:|)), groupWith, toList)
 import Data.Map as M (Map, delete, fromList, lookup, member, singleton)
 import Data.Maybe (catMaybes, fromJust, fromMaybe, isNothing)
-import Data.Tuple.Extra (dupe, firstM)
+import Data.Tuple.Extra (dupe, firstM, swap)
+import Debug.Trace
 import Effect.ElaborationError (ElaborationError (..))
 import Effect.Gen (Gen, gen)
 import Polysemy (Embed (unEmbed), Member, Members, Sem)
 import Polysemy.Error (Error, throw)
+import Polysemy.State (State, evalState, get, modify, runState)
 
 pairNew :: T.Term
 pairNew = T.Global (QName ["Prelude", "Pair"] "New")
@@ -181,28 +185,27 @@ desugarExpression gcxt = desugar'
                   )
     lambda :: Members Effects r => LocalContext -> [C.Argument] -> C.Expression -> Sem r T.Term
     lambda cxt args body = do
-      (args, cxt') <- desugarArguments gcxt cxt args
+      (cxt', args) <- desugarArguments gcxt cxt ((Explicit,) . (: []) <$> args)
       let argTypes = T.type' <$> args
-      body' <- desugarExpression gcxt (cxt' <> cxt) body
+      body' <- desugarExpression gcxt cxt' body
       pure $ foldr T.Lam body' argTypes
 
 insertMeta :: Members Effects r => LocalContext -> Sem r T.Term
 insertMeta cxt = genMeta (length cxt)
 
-desugarArguments :: Members Effects r => GlobalContext -> LocalContext -> [C.Argument] -> Sem r ([T.Argument], LocalContext)
-desugarArguments gcxt = go
+desugarArguments :: Members Effects r => GlobalContext -> LocalContext -> [ArgumentGroup] -> Sem r (LocalContext, [T.Argument])
+desugarArguments gcxt cxt xs = second concat <$> runState cxt (forM xs go)
   where
-    go :: Members Effects r => LocalContext -> [C.Argument] -> Sem r ([T.Argument], LocalContext)
-    go cxt [] = pure ([], [])
-    go cxt ((names, type', plicity, _) : args) = do
-      type'' <- maybe (insertMeta cxt) (desugarExpression gcxt cxt) type'
-      let args' = (\name -> T.Argument {name, plicity, type' = type''}) <$> names
-          names' = reverse $ toList names
-      (args, context) <- go (names' <> cxt) args
-      pure
-        ( toList args' <> args,
-          context <> names'
-        )
+    go :: Members (State LocalContext : Effects) r => ArgumentGroup -> Sem r [T.Argument]
+    go (plicity, args) =
+      (concat <$>) <$> forM args $ \(names, type', _) -> do
+        cxt <- get
+        type'' <- maybe (insertMeta cxt) (desugarExpression gcxt cxt) type'
+        modify (reverse (toList names) <>)
+        let args' = (\name -> T.Argument {name, plicity, type' = type''}) <$> names
+        pure $ toList args'
+
+-- pure $ concat xs
 
 -- FIXME: remove it
 data Pattern' = Pattern'
