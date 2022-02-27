@@ -1,16 +1,16 @@
-module Concrete.Pattern (Pattern (..), Implicit (..)) where
+module Concrete.Pattern (Pattern (..), NamedPattern (..)) where
 
 import Common
-import Data.List (intercalate)
 import Concrete.Literal (Literal)
+import Data.List (intercalate)
 
-data Implicit
-  = Implicit LocalName Pattern
-  | PunnedImplicit LocalName
+data NamedPattern
+  = NamedPattern LocalName Pattern
   deriving (Show)
 
+-- | PunnedImplicit LocalName
 data Pattern
-  = Data QName [Either Implicit Pattern]
+  = Data QName [Either NamedPattern Pattern]
   | Variable LocalName
   | Tuple [Pattern]
   | List [Pattern]

@@ -36,6 +36,9 @@ prettyName = pretty . intercalate "." . toList
 instance Pretty QName where
   pretty x = pretty (show x)
 
+instance Pretty Annotation where
+  pretty (Annotation value) = pretty "@" <> pretty value
+
 instance Pretty Pattern where
   pretty (P.Variable x) = pretty x
   pretty (Data constructor args) =
@@ -48,8 +51,8 @@ instance Pretty Pattern where
           then pretty x
           else pretty "(" <> pretty x <> pretty ")"
       pretty' x = pretty x
-      prettyArgs (Left (P.Implicit x as)) = pretty "(" <> pretty x <+> pretty "=" <+> pretty as <> pretty ")"
-      prettyArgs (Left (P.PunnedImplicit x)) = pretty "(" <> pretty x <> pretty ")"
+      prettyArgs (Left (P.NamedPattern x as)) = pretty "(" <> pretty x <+> pretty "=" <+> pretty as <> pretty ")"
+      -- prettyArgs (Left (P.PunnedImplicit x)) = pretty "(" <> pretty x <> pretty ")"
       prettyArgs (Right x) = pretty x
   pretty (P.Literal x) = pretty x
   pretty (P.Tuple xs) = pretty "( " <> commaSeparated (pretty <$> xs) <> pretty " )"
@@ -103,8 +106,8 @@ prettyLambdaArguments :: NonEmpty Argument -> Doc ann
 prettyLambdaArguments args = sep $ pretty' <$> toList args
   where
     pretty' :: Argument -> Doc ann
-    pretty' (name, Nothing, _) = sep (pretty <$> toList name)
-    pretty' (name, Just type', _) = pretty "(" <> sep (pretty <$> toList name) <+> pretty ":" <+> pretty type' <> pretty ")"
+    pretty' (name, Nothing, _, _) = sep (pretty <$> toList name)
+    pretty' (name, Just type', _, _) = pretty "(" <> sep (pretty <$> toList name) <+> pretty ":" <+> pretty type' <> pretty ")"
 
 prettyArguments :: [Argument] -> Doc ann
 prettyArguments [] = mempty
@@ -115,7 +118,7 @@ prettyArguments xs =
     <> pretty ")"
   where
     pretty' :: Argument -> Doc ann
-    pretty' (names, type', _) =
+    pretty' (names, type', _, _) =
       let names' = sep $ pretty <$> toList names
           type'' = pretty type'
        in names' <+> pretty ":" <+> align type''
@@ -182,4 +185,7 @@ instance Show Expression where
   show = renderString . layoutPretty defaultLayoutOptions . pretty
 
 instance Show Source where
+  show = renderString . layoutPretty defaultLayoutOptions . pretty
+
+instance Show Annotation where
   show = renderString . layoutPretty defaultLayoutOptions . pretty

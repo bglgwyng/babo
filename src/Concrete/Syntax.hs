@@ -4,6 +4,7 @@ import Common
 import Concrete.Literal
 import Concrete.Pattern (Pattern)
 import Control.Arrow
+import Core.Term (Plicity)
 import Data.Function
 import Data.Functor
 import Data.List
@@ -45,7 +46,7 @@ data ImportRule
   | UnqualifiedOnly [(String, ImportRule)]
   | Qualified String
 
-type Argument = (NonEmpty LocalName, Maybe Expression, [Annotation])
+type Argument = (NonEmpty LocalName, Maybe Expression, Plicity, [Annotation])
 
 data Variant = Variant
   { name :: LocalName,

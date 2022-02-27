@@ -18,11 +18,12 @@ import Common
 -- import qualified Data.Text.Encoding as Text.Encoding
 
 import Common (QName (namespace))
-import Concrete.Pattern
+import Concrete.Pattern hiding (Implicit)
 import Concrete.Syntax
 import Control.Applicative (Alternative (..), optional, (<**>))
 import Control.Arrow
 import Control.Monad (MonadPlus (..), guard, mfilter, replicateM)
+import Core.Term (Plicity (Explicit, Implicit))
 import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isUpper)
 import qualified Data.Char as Char
 import Data.Fixed (Pico)
@@ -166,7 +167,7 @@ case' = Case <$> (symbol "case" *> some expression <* symbol "of") <*> braced (s
     patternArguments =
       parenthesized $
         sepByComma1
-          ( try (Left <$> (Implicit <$> lexeme lowerName <*> (symbol "=" *> pattern')))
+          ( try (Left <$> (NamedPattern <$> lexeme lowerName <*> (symbol "=" *> pattern')))
               <|> (Right <$> pattern')
           )
 
@@ -178,8 +179,8 @@ lambda = symbol "\\" *> (Lambda <$> some1 argument <*> (symbol "->" *> expressio
   where
     argument :: Parser Argument
     argument =
-      try ((,Nothing,[]) . (:| []) <$> localName)
-        <|> parenthesized ((,,[]) <$> some1 localName <*> (Just <$> (symbol ":" *> expression)))
+      try ((,Nothing,Explicit,[]) . (:| []) <$> localName)
+        <|> parenthesized ((,,Explicit,[]) <$> some1 localName <*> (Just <$> (symbol ":" *> expression)))
 
 parenthesize :: Parser Expression
 parenthesize = Parenthesized <$> parenthesized expression
@@ -219,14 +220,19 @@ expression =
              <|> pure id
          )
 
-lhsArgument :: Parser Argument
-lhsArgument =
-  (,,) <$> some1 (quoatable localName)
+lhsArgument :: Plicity -> Parser Argument
+lhsArgument plicity =
+  (,,plicity,) <$> some1 (quoatable localName)
     <*> optional (symbol ":" *> expression)
     <*> annotations'
 
 lhsArguments :: Parser [Argument]
-lhsArguments = fold <$> optional (parenthesized $ sepByComma1 lhsArgument)
+lhsArguments =
+  concat
+    <$> many
+      ( try (parenthesized (sepByComma1 (lhsArgument Explicit)))
+          <|> braced (sepByComma1 (lhsArgument Implicit))
+      )
 
 dataDeclaration :: Parser TopLevelStatement
 dataDeclaration =

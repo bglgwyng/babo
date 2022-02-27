@@ -194,19 +194,15 @@ desugarArguments gcxt = go
   where
     go :: Members Effects r => LocalContext -> [C.Argument] -> Sem r ([T.Argument], LocalContext)
     go cxt [] = pure ([], [])
-    go cxt ((names, type', _) : args) = do
+    go cxt ((names, type', plicity, _) : args) = do
       type'' <- maybe (insertMeta cxt) (desugarExpression gcxt cxt) type'
-      let args' = bindName type'' <$> names
-          names' = reverse $ toList (T.name <$> args')
+      let args' = (\name -> T.Argument {name, plicity, type' = type''}) <$> names
+          names' = reverse $ toList names
       (args, context) <- go (names' <> cxt) args
       pure
         ( toList args' <> args,
           context <> names'
         )
-      where
-        bindName :: T.Term -> LocalName -> T.Argument
-        bindName type' ('\'' : name) = T.Argument {name, plicity = T.Implicit, type'}
-        bindName type' name = T.Argument {name, plicity = T.Explicit, type'}
 
 -- FIXME: remove it
 data Pattern' = Pattern'
