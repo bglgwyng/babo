@@ -207,19 +207,20 @@ meta = Meta <$ symbol "_"
 
 expression :: Parser Expression
 expression =
-  ( try identifier
-      <|> try forall
-      <|> try lambda
-      <|> try let'
-      <|> try case'
-      <|> try meta
-      <|> parenthesize
-  )
-    <**> ( try ((foldl (&) `flip`) <$> some application)
-             <|> try infix'
-             <|> try arrow
-             <|> pure id
-         )
+  try forall
+    <|> try lambda
+    <|> try let'
+    <|> try case'
+    <|> ( ( try identifier
+              <|> try meta
+              <|> parenthesize
+          )
+            <**> (try ((foldl (&) `flip`) <$> some application) <|> pure id)
+            <**> ( try infix'
+                     <|> try arrow
+                     <|> pure id
+                 )
+        )
 
 lhsArgument :: Parser Argument
 lhsArgument =
