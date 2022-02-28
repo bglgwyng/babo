@@ -109,20 +109,20 @@ prettyLambdaArguments :: NonEmpty Argument -> Doc ann
 prettyLambdaArguments args = sep $ pretty' <$> toList args
   where
     pretty' :: Argument -> Doc ann
-    pretty' (name, Nothing, _) = sep (pretty <$> toList name)
-    pretty' (name, Just type', _) = pretty "(" <> sep (pretty <$> toList name) <+> pretty ":" <+> pretty type' <> pretty ")"
+    pretty' (name, Nothing, _) = pretty name
+    pretty' (name, Just type', _) = pretty "(" <> pretty name <+> pretty ":" <+> pretty type' <> pretty ")"
 
-prettyArguments :: [ArgumentGroup] -> Doc ann
+prettyArguments :: [ArgumentBlock] -> Doc ann
 prettyArguments [] = mempty
 prettyArguments xs =
-  align $ hcat $ prettyArgumentGroup <$> xs
+  align $ hcat $ prettyArgumentBlock <$> xs
   where
     prettyArgument :: Argument -> Doc ann
-    prettyArgument (names, type', _) =
-      sep (pretty <$> toList names)
+    prettyArgument (name, type', _) =
+      pretty name
         <> maybe mempty ((pretty ":" <+>) . align . pretty) type'
-    prettyArgumentGroup :: ArgumentGroup -> Doc ann
-    prettyArgumentGroup (plicity, args) =
+    prettyArgumentBlock :: ArgumentBlock -> Doc ann
+    prettyArgumentBlock (plicity, args) =
       ( case plicity of
           Implicit -> (pretty "{" <>) . (<> pretty "}")
           Explicit -> (pretty "(" <>) . (<> pretty ")")

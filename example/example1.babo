@@ -13,33 +13,33 @@ def nil : forall A : _, List(A)
 def cons(A : Type, x : A, xs : List(A)) : List(A)
   = \L cons nil -> cons(x, xs(_, cons, nil))
 
--- def Bool : Type
---   = forall B : Type, B -> B -> B
+def Bool : Type
+  = forall B : Type, B -> B -> B
 
--- def true : Bool
---   = \(B: Type) -> \(t:B) -> \f -> t
+def true : Bool
+  = \(B: Type) -> \(t:B) -> \f -> t
 
--- def false : Bool
---   = \B t f -> f
+def false : Bool
+  = \B t f -> f
 
--- def not(b : Bool): Bool
---   = \(B : Type) (t : B) (f : B) -> b(B, f, t)
+def not(b : Bool): Bool
+  = \(B : Type) (t : B) (f : B) -> b(B, f, t)
 
--- def list1 : List (Bool)
---   = cons(_, id(_, true), nil(_))
+def list1 : List (Bool)
+  = cons(_, id(_, true), nil(_))
 
--- def Eq : forall A: _, A -> A -> Type
---   = \A x y -> forall P : A -> Type, P(x) -> P(y)
+def Eq : forall A : _, A -> A -> Type
+  = \A x y -> forall P : A -> Type, P(x) -> P(y)
 
--- def refl : forall A : _, forall x : A, Eq(A, x, x)
---   = \A x P px -> px
+def refl : forall A : _, forall x : A, Eq(A, x, x)
+  = \A x P px -> px
 
--- def Nat  : Type = forall N : Type, (N -> N) -> N -> N
--- def one : Nat = \(N : Type) s (z : N) -> s(z)
--- def add  : Nat -> Nat -> Nat = \a b N s z -> a (N, s, (b (N, s, z)))
--- def mul  : Nat -> Nat -> Nat = \a b N s z -> a (N, (b(N, s)), z)
+def Nat  : Type = forall N : Type, (N -> N) -> N -> N
+def one : Nat = \(N : Type) s (z : N) -> s(z)
+def add  : Nat -> Nat -> Nat = \a b N s z -> a (N, s, (b (N, s, z)))
+def mul  : Nat -> Nat -> Nat = \a b N s z -> a (N, (b(N, s)), z)
 
--- def five      : Nat = \N s z -> s(s(s(s(s(z)))))
--- def ten      : Nat = add(five, five)
--- def hundred  : Nat = mul(ten, ten)
--- def thousand : Nat = mul(ten, hundred)
+def five      : Nat = \N s z -> s(s(s(s(s(z)))))
+def ten      : Nat = add(five, five)
+def hundred  : Nat = mul(ten, ten)
+def thousand : Nat = mul(ten, hundred)

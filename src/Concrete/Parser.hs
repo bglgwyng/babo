@@ -85,8 +85,10 @@ symbol :: String -> Parser String
 symbol = L.symbol sc
 
 -- utils
+braced :: Parser a -> Parser a
 braced = between (symbol "{") (symbol "}")
 
+parenthesized :: Parser a -> Parser a
 parenthesized = between (symbol "(") (symbol ")")
 
 sepByComma :: Parser a -> Parser [a]
@@ -97,6 +99,7 @@ sepByComma1 = (`sepBy1` symbol ",")
 
 --
 
+keywords :: [String]
 keywords = ["data", "decl", "def", "let", "forall", "case", "of", "where"]
 
 keyword :: String -> Parser String
@@ -186,8 +189,8 @@ lambda = symbol "\\" *> (Lambda <$> some1 argument <*> (symbol "->" *> expressio
   where
     argument :: Parser Argument
     argument =
-      try ((,Nothing,[]) . (:| []) <$> localName)
-        <|> parenthesized ((,,[]) <$> some1 localName <*> (Just <$> (symbol ":" *> expression)))
+      try ((,Nothing,[]) <$> localName)
+        <|> parenthesized ((,,[]) <$> localName <*> (Just <$> (symbol ":" *> expression)))
 
 parenthesize :: Parser Expression
 parenthesize = Parenthesized <$> parenthesized expression
@@ -218,17 +221,17 @@ expression =
              <|> pure id
          )
 
-lhsArgument :: Plicity -> Parser Argument
-lhsArgument plicity =
-  (,,) <$> some1 localName
+lhsArgument :: Parser Argument
+lhsArgument =
+  (,,) <$> localName
     <*> optional (symbol ":" *> expression)
     <*> annotations'
 
-lhsArguments :: Parser [ArgumentGroup]
+lhsArguments :: Parser [ArgumentBlock]
 lhsArguments =
   many
-    ( try ((Explicit,) <$> parenthesized (sepByComma1 (lhsArgument Explicit)))
-        <|> (Implicit,) <$> braced (sepByComma1 (lhsArgument Implicit))
+    ( try ((Explicit,) <$> parenthesized (sepByComma1 lhsArgument))
+        <|> ((Implicit,) <$> braced (sepByComma1 lhsArgument))
     )
 
 dataDeclaration :: Parser TopLevelStatement

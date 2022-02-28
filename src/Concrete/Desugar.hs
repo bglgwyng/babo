@@ -193,17 +193,17 @@ desugarExpression gcxt = desugar'
 insertMeta :: Members Effects r => LocalContext -> Sem r T.Term
 insertMeta cxt = genMeta (length cxt)
 
-desugarArguments :: Members Effects r => GlobalContext -> LocalContext -> [ArgumentGroup] -> Sem r (LocalContext, [T.Argument])
-desugarArguments gcxt cxt xs = second concat <$> runState cxt (forM xs go)
+desugarArguments :: Members Effects r => GlobalContext -> LocalContext -> [ArgumentBlock] -> Sem r (LocalContext, [T.Argument])
+desugarArguments gcxt cxt xs =
+  runState cxt (foldM ((fmap . (<>)) >>> (. go)) [] xs)
   where
-    go :: Members (State LocalContext : Effects) r => ArgumentGroup -> Sem r [T.Argument]
+    go :: Members (State LocalContext : Effects) r => ArgumentBlock -> Sem r [T.Argument]
     go (plicity, args) =
-      (concat <$>) <$> forM args $ \(names, type', _) -> do
+      forM args $ \(name, type', _) -> do
         cxt <- get
         type'' <- maybe (insertMeta cxt) (desugarExpression gcxt cxt) type'
-        modify (reverse (toList names) <>)
-        let args' = (\name -> T.Argument {name, plicity, type' = type''}) <$> names
-        pure $ toList args'
+        modify (name :)
+        pure T.Argument {name, plicity, type' = type''}
 
 -- pure $ concat xs
 

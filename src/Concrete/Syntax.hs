@@ -46,13 +46,13 @@ data ImportRule
   | UnqualifiedOnly [(String, ImportRule)]
   | Qualified String
 
-type Argument = (NonEmpty LocalName, Maybe Expression, [Annotation])
+type Argument = (LocalName, Maybe Expression, [Annotation])
 
-type ArgumentGroup = (Plicity, [Argument])
+type ArgumentBlock = (Plicity, [Argument])
 
 data Variant = Variant
   { name :: LocalName,
-    args :: [ArgumentGroup],
+    args :: [ArgumentBlock],
     maybeType :: Maybe Expression,
     annotatoins :: [Annotation]
   }
@@ -60,21 +60,21 @@ data Variant = Variant
 data TopLevelStatement
   = DataDeclaration
       { name :: String,
-        args :: [ArgumentGroup],
+        args :: [ArgumentBlock],
         maybeType :: Maybe Expression,
         variants :: [Variant],
         annotations :: [Annotation]
       }
   | Definition
       { name :: String,
-        args :: [ArgumentGroup],
+        args :: [ArgumentBlock],
         maybeType :: Maybe Expression,
         value :: Expression,
         annotations :: [Annotation]
       }
   | Declaration
       { name :: String,
-        args :: [ArgumentGroup],
+        args :: [ArgumentBlock],
         type' :: Expression,
         annotations :: [Annotation]
       }
