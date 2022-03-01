@@ -184,12 +184,9 @@ arrow :: Parser (Expression -> Expression)
 arrow = (Arrow `flip`) <$> (symbol "->" *> expression)
 
 lambda :: Parser Expression
-lambda = symbol "\\" *> (Lambda <$> some1 argument <*> (symbol "->" *> expression))
+lambda = symbol "\\" *> (Lambda <$> sepByComma1 argument <*> (symbol "=>" *> expression))
   where
-    argument :: Parser Argument
-    argument =
-      try ((,Nothing,[]) <$> localName)
-        <|> parenthesized ((,,[]) <$> localName <*> (Just <$> (symbol ":" *> expression)))
+    argument = (,,[]) <$> localName <*> optional (symbol ":" *> expression)
 
 parenthesize :: Parser Expression
 parenthesize = Parenthesized <$> parenthesized expression

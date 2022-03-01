@@ -8,7 +8,7 @@ def map{a, b}(f: a -> b, xs: Maybe(a)) = case xs of {
   Nothing -> Nothing;
 }
 
-%typeof map(\x -> x, Just (Type))
+%typeof map(\x => x, Just (Type))
 
 def maybe{a, b}(x, f: a -> b, xs: Maybe(a)): b = case xs of {
   Just(x) -> f(x);
