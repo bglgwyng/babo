@@ -284,4 +284,4 @@ statement = do
     <|> (hidden (keyword "%check") *> check)
 
 parse :: Parser Source
-parse = (Source <$> many statement) <* eof
+parse = sc *> (Source <$> many statement) <* eof
