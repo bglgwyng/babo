@@ -97,7 +97,7 @@ desugarExpression gcxt = desugar'
         (,[]) <$> (T.Ap <$> (T.Lam <$> insertMeta cxt <*> desugar' (name : cxt) body) <*> desugar'' value)
       C.Case xs cases -> do
         xs' <- forM xs desugar''
-        y <- go (zipWith const [0 ..] xs) ((extend (length xs') cxt,) . first (desugarPattern <$>) <$> cases)
+        y <- go (zipWith const [0 ..] xs) ((extend (length xs') cxt,) . first ((desugarPattern <$>) . toList) <$> cases)
         -- pure (foldr T.Let y xs', [])
         argTypes <- forM xs' (const $ insertMeta cxt)
         pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs', [])

@@ -94,8 +94,8 @@ parenthesized = between (symbol "(") (symbol ")")
 sepByComma :: Parser a -> Parser [a]
 sepByComma = (`sepBy` symbol ",")
 
-sepByComma1 :: Parser a -> Parser [a]
-sepByComma1 = (`sepBy1` symbol ",")
+sepByComma1 :: Parser a -> Parser (NonEmpty a)
+sepByComma1 = (NonEmpty.fromList <$>) . (`sepBy1` symbol ",")
 
 --
 
@@ -142,7 +142,7 @@ annotations' = many (Annotation <$> (hidden (symbol "@") *> expression))
 application :: Parser (Expression -> Expression)
 application =
   (Application `flip`)
-    <$> parenthesized (NonEmpty.fromList <$> sepByComma1 disk)
+    <$> parenthesized (sepByComma1 disk)
   where
     disk :: Parser (Maybe String, Expression)
     disk =
@@ -155,7 +155,7 @@ infix' = ((Infix `flip`) <$> qname False <&> flip) <*> expression
 forall :: Parser Expression
 forall =
   ForAll
-    <$> (hidden (keyword "forall") *> (NonEmpty.fromList <$> sepByComma1 ((,) <$> localName <*> (symbol ":" *> expression))))
+    <$> (hidden (keyword "forall") *> sepByComma1 ((,) <$> localName <*> (symbol ":" *> expression)))
     <*> (symbol "=>" *> expression)
 
 let' :: Parser Expression
@@ -169,7 +169,7 @@ case' = Case <$> (keyword "case" *> some expression <* keyword "of") <*> braced 
     pattern' :: Parser Pattern
     pattern' =
       try
-        (Data <$> qname True <*> (fold <$> optional patternArguments))
+        (Data <$> qname True <*> (maybe [] NonEmpty.toList <$> optional patternArguments))
         <|> try
           (Variable <$> lexeme lowerName)
         <|> (Wildcard <$ symbol "_")
@@ -230,9 +230,11 @@ lhsArgument =
 lhsArguments :: Parser [ArgumentBlock]
 lhsArguments =
   many
-    ( try ((Explicit,) <$> parenthesized (sepByComma1 lhsArgument))
-        <|> ((Implicit,) <$> braced (sepByComma1 lhsArgument))
+    ( try ((Explicit,) <$> parenthesized arguments)
+        <|> ((Implicit,) <$> braced arguments)
     )
+  where
+    arguments = NonEmpty.toList <$> sepByComma1 lhsArgument
 
 dataDeclaration :: [Annotation] -> Parser TopLevelStatement
 dataDeclaration anns =

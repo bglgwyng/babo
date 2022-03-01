@@ -10,6 +10,7 @@ import Data.Function ((&))
 import Data.Functor
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty, nonEmpty, toList)
+import Polysemy.Law (NonEmptyList (NonEmpty))
 import Prettyprinter
   ( Doc,
     Pretty (pretty),
@@ -32,6 +33,7 @@ tabSize = 2
 indent' :: Doc ann -> Doc ann
 indent' = indent tabSize
 
+commaSeparated :: [Doc ann] -> Doc ann
 commaSeparated = sep . punctuate (pretty ",")
 
 prettyName = pretty . intercalate "." . toList
@@ -65,7 +67,7 @@ instance Pretty Pattern where
 prettyBranch :: Branch -> Doc ann
 prettyBranch (pattern, expression) =
   sep
-    [ commaSeparated $ pretty <$> pattern,
+    [ commaSeparated $ toList (pretty <$> pattern),
       pretty "->"
         <+> align (pretty expression)
         <> pretty ';'

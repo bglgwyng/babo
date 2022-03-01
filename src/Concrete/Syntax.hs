@@ -19,7 +19,7 @@ import Prettyprinter.Render.Text (putDoc, renderLazy)
 newtype Annotation
   = Annotation Expression
 
-type Branch = ([Pattern], Expression)
+type Branch = (NonEmpty Pattern, Expression)
 
 type Disk = (Maybe LocalName, Expression)
 
