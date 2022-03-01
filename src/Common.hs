@@ -8,7 +8,8 @@ type LocalName = String
 data QName = QName {namespace :: [String], name :: LocalName} deriving (Eq, Ord)
 
 instance Show QName where
-  show QName {namespace, name} = if null namespace then name else intercalate "." namespace <> name
+  show QName {namespace = [], name} = name
+  show QName {namespace, name} = intercalate "." namespace <> "." <> name
 
 type Id = Int
 
