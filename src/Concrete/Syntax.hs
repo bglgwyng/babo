@@ -26,7 +26,7 @@ type Disk = (Maybe LocalName, Expression)
 data Expression
   = Application Expression (NonEmpty Disk)
   | Identifier QName
-  | ForAll (NonEmpty LocalName) Expression Expression
+  | ForAll (NonEmpty (LocalName, Expression)) Expression
   | Arrow Expression Expression
   | Let LocalName Expression Expression
   | Case [Expression] [Branch]

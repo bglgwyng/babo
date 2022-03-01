@@ -4,7 +4,7 @@ import Common
 import Concrete.Pattern hiding (List, Literal, Tuple, Variable)
 import qualified Concrete.Pattern as P
 import Concrete.Syntax
-import Control.Arrow ((>>>))
+import Control.Arrow (Arrow ((***)), (>>>))
 import Core.Term (Plicity (Explicit, Implicit))
 import Data.Function ((&))
 import Data.Functor
@@ -84,8 +84,10 @@ instance Pretty Expression where
       [ pretty "let" <+> pretty name <+> pretty "=" <+> pretty value <> pretty ",",
         pretty body
       ]
-  pretty (ForAll names type' y) =
-    pretty "forall" <+> align (sep (pretty <$> toList names) <+> pretty ":" <+> pretty type' <> pretty "," <+> pretty y)
+  pretty (ForAll froms to) =
+    pretty "forall" <+> align (commaSeparated (prettyArgument <$> toList froms)) <> pretty "," <+> pretty to
+    where
+      prettyArgument = uncurry (<>) . (pretty *** (pretty ":" <+>) . pretty)
   pretty (Infix x op y) = pretty x <+> pretty op <+> pretty y
   pretty (Tuple xs) = pretty "( " <> align (commaSeparated (pretty <$> xs) <> pretty " )")
   pretty (List xs) = pretty "[ " <> align (commaSeparated (pretty <$> xs) <> pretty " ]")

@@ -139,9 +139,6 @@ upperName = label "uppercase name" $ (satisfy isUpper <&> (:)) <*> nameTail
 annotations' :: Parser [Annotation]
 annotations' = many (Annotation <$> (hidden (symbol "@") *> expression))
 
-argument :: Parser (NonEmpty String, Expression)
-argument = ((,) <$> some1 localName) <*> (symbol ":" *> expression)
-
 application :: Parser (Expression -> Expression)
 application =
   (Application `flip`)
@@ -156,7 +153,10 @@ infix' :: Parser (Expression -> Expression)
 infix' = ((Infix `flip`) <$> qname False <&> flip) <*> expression
 
 forall :: Parser Expression
-forall = uncurry ForAll <$> (hidden (keyword "forall") *> argument <* symbol ",") <*> expression
+forall =
+  ForAll
+    <$> (hidden (keyword "forall") *> (NonEmpty.fromList <$> sepByComma1 ((,) <$> localName <*> (symbol ":" *> expression))))
+    <*> (symbol "=>" *> expression)
 
 let' :: Parser Expression
 let' = Let <$> (hidden (keyword "let") *> localName) <*> (symbol "=" *> expression <* symbol ",") <*> expression

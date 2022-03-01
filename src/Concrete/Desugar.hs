@@ -84,13 +84,13 @@ desugarExpression gcxt = desugar'
           apply xs ((_, T.Implicit) : args) = (first . (:) <$> insertMeta cxt) <*> apply xs args
       C.Identifier x -> lookup x
       C.Meta -> ((,[]) <$> insertMeta cxt)
-      C.ForAll xs from to ->
-        (,[]) <$> forall cxt (toList xs)
+      C.ForAll froms to ->
+        (,[]) <$> forall cxt (toList froms)
         where
-          forall :: Members Effects r => LocalContext -> [LocalName] -> Sem r T.Term
-          forall _ [] = desugar' (reverse (toList xs) <> cxt) to
-          forall cxt (x : xs) =
-            T.Pi <$> desugar'' from <*> forall (extend 1 cxt) xs
+          forall :: Members Effects r => LocalContext -> [(LocalName, Expression)] -> Sem r T.Term
+          forall cxt [] = desugar' cxt to
+          forall cxt ((name, type') : xs) =
+            T.Pi <$> desugar' cxt type' <*> forall (name : cxt) xs
       C.Arrow from to ->
         (,[]) <$> (T.Pi <$> desugar'' from <*> desugar' (extend 1 cxt) to)
       C.Let name value body ->
@@ -98,7 +98,7 @@ desugarExpression gcxt = desugar'
       C.Case xs cases -> do
         xs' <- forM xs desugar''
         y <- go (zipWith const [0 ..] xs) ((extend (length xs') cxt,) . first (desugarPattern <$>) <$> cases)
-        pure (foldr T.Let y xs', [])
+        -- pure (foldr T.Let y xs', [])
         argTypes <- forM xs' (const $ insertMeta cxt)
         pure (foldr (flip T.Ap) (foldr T.Lam y argTypes) xs', [])
         where
