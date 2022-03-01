@@ -39,7 +39,7 @@ import Data.String (IsString (..))
 import Data.Void (Void)
 import GHC.Base (assert)
 import Text.Megaparsec
-  ( MonadParsec (eof),
+  ( MonadParsec (eof, hidden, label),
     Parsec,
     between,
     notFollowedBy,
@@ -107,22 +107,21 @@ keyword x =
   assert (x `elem` keywords) $
     lexeme (string x <* notFollowedBy (satisfy nameTailPredicate))
 
+notKeyword :: Parser String -> Parser String
+notKeyword = mfilter (not . (`elem` keywords))
+
 localName :: Parser String
-localName = lexeme $ mfilter (not . (`elem` keywords)) $ try lowerName <|> upperName
+localName = lexeme $ notKeyword lowerName <|> upperName
 
 -- FIXME: better design
 qname :: Bool -> Parser QName
-qname isConstructor = lexeme do
-  try ((upperName <&> (:|)) <*> go <&> \xs -> QName (NonEmpty.init xs) (NonEmpty.last xs))
-    <|> ((if isConstructor then lexeme upperName else localName) <&> QName [])
+qname isConstructor =
+  lexeme $
+    ((upperName <&> (:|)) <*> go <&> \xs -> QName (NonEmpty.init xs) (NonEmpty.last xs))
+      <|> if isConstructor then mzero else QName [] <$> notKeyword lowerName
   where
     go =
-      try
-        ( char '.'
-            *> ( try ((upperName <&> (:)) <*> go)
-                   <|> (if isConstructor then mzero else lowerName <&> (: []))
-               )
-        )
+      try (char '.') *> (((: []) <$> lowerName) <|> ((:) <$> upperName <*> go))
         <|> pure []
 
 nameTailPredicate :: Char -> Bool
@@ -132,13 +131,13 @@ nameTail :: Parser String
 nameTail = takeWhileP Nothing nameTailPredicate
 
 lowerName :: Parser LocalName
-lowerName = (satisfy isLower <&> (:)) <*> nameTail
+lowerName = label "lowercase name" $ (satisfy isLower <&> (:)) <*> nameTail
 
 upperName :: Parser LocalName
-upperName = (satisfy isUpper <&> (:)) <*> nameTail
+upperName = label "uppercase name" $ (satisfy isUpper <&> (:)) <*> nameTail
 
 annotations' :: Parser [Annotation]
-annotations' = many (Annotation <$> (symbol "@" *> expression))
+annotations' = many (Annotation <$> (hidden (symbol "@") *> expression))
 
 argument :: Parser (NonEmpty String, Expression)
 argument = ((,) <$> some1 localName) <*> (symbol ":" *> expression)
@@ -157,10 +156,10 @@ infix' :: Parser (Expression -> Expression)
 infix' = ((Infix `flip`) <$> qname False <&> flip) <*> expression
 
 forall :: Parser Expression
-forall = uncurry ForAll <$> (keyword "forall" *> argument <* symbol ",") <*> expression
+forall = uncurry ForAll <$> (hidden (keyword "forall") *> argument <* symbol ",") <*> expression
 
 let' :: Parser Expression
-let' = Let <$> (keyword "let" *> localName) <*> (symbol "=" *> expression <* symbol ",") <*> expression
+let' = Let <$> (hidden (keyword "let") *> localName) <*> (symbol "=" *> expression <* symbol ",") <*> expression
 
 case' :: Parser Expression
 case' = Case <$> (keyword "case" *> some expression <* keyword "of") <*> braced (sepEndBy branch (symbol ";"))
@@ -235,9 +234,9 @@ lhsArguments =
         <|> ((Implicit,) <$> braced (sepByComma1 lhsArgument))
     )
 
-dataDeclaration :: Parser TopLevelStatement
-dataDeclaration =
-  (annotations' <* keyword "data")
+dataDeclaration :: [Annotation] -> Parser TopLevelStatement
+dataDeclaration anns =
+  pure anns
     <**> ( DataDeclaration <$> localName <*> lhsArguments <*> optional (symbol ":" *> expression) <* keyword "where"
              <*> braced (sepEndBy varaint (symbol ";"))
          )
@@ -247,41 +246,42 @@ dataDeclaration =
         <*> optional (symbol ":" *> expression)
         <*> annotations'
 
-definition :: Parser TopLevelStatement
-definition =
-  (annotations' <* keyword "def")
+definition :: [Annotation] -> Parser TopLevelStatement
+definition anns =
+  pure anns
     <**> ( Definition <$> localName <*> lhsArguments <*> optional (symbol ":" *> expression)
              <*> (symbol "=" *> expression)
          )
 
-declaration :: Parser TopLevelStatement
-declaration =
-  (annotations' <* keyword "decl")
+declaration :: [Annotation] -> Parser TopLevelStatement
+declaration anns =
+  pure anns
     <**> (Declaration <$> localName <*> lhsArguments <*> (symbol ":" *> expression))
 
 eval :: Parser TopLevelStatement
-eval = keyword "%eval" *> (Eval <$> expression)
+eval = Eval <$> expression
 
 typeof :: Parser TopLevelStatement
-typeof = keyword "%typeof" *> (TypeOf <$> expression)
+typeof = TypeOf <$> expression
 
 check :: Parser TopLevelStatement
 check =
-  keyword "%check"
-    *> expression
-      <**> ( try (symbol "=" $> CheckUnify)
-               <|> (symbol ":" $> CheckTypeOf)
-           )
-      <*> expression
+  expression
+    <**> ( symbol "=" $> CheckUnify
+             <|> symbol ":" $> CheckTypeOf
+         )
+    <*> expression
 
 statement :: Parser TopLevelStatement
-statement =
-  try dataDeclaration
-    <|> try definition
-    <|> try declaration
-    <|> try eval
-    <|> try typeof
-    <|> check
+statement = do
+  anns <- annotations'
+  (hidden (keyword "data") *> try (dataDeclaration anns))
+    <|> (hidden (keyword "def") *> try (definition anns))
+    <|> (hidden (keyword "decl") *> try (declaration anns))
+    -- TODO: these are unannotatble
+    <|> (hidden (keyword "%eval") *> try eval)
+    <|> (hidden (keyword "%typeof") *> try typeof)
+    <|> (hidden (keyword "%check") *> check)
 
 parse :: Parser Source
 parse = (Source <$> many statement) <* eof
