@@ -12,11 +12,12 @@ module Concrete.Parser where
 
 -- import qualified Data.Time as Time
 
-import Common
 -- import Data.Text (Text)
 -- import qualified Data.Text as Text
 -- import qualified Data.Text.Encoding as Text.Encoding
 
+import BasicPrelude
+import Common
 import Common (QName (namespace))
 import Concrete.Pattern hiding (Implicit)
 import Concrete.Syntax
@@ -24,7 +25,21 @@ import Control.Applicative (Alternative (..), optional, (<**>))
 import Control.Arrow
 import Control.Monad (MonadPlus (..), guard, mfilter, replicateM)
 import Core.Term (Plicity (Explicit, Implicit))
-import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isUpper)
+-- import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isUpper)
+
+-- import Data.Text (IsText (..))
+
+-- import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isUpper)
+
+-- import Data.Text (IsText (..))
+-- import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isUpper)
+
+-- import Data.Text (IsText (..))
+
+-- import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isUpper)
+
+-- import Data.Text (IsText (..))
+import Data.Char (isAlphaNum, isLower, isUpper)
 import qualified Data.Char as Char
 import Data.Fixed (Pico)
 import Data.Foldable (fold)
@@ -35,7 +50,8 @@ import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Ratio ((%))
-import Data.String (IsString (..))
+import Data.Semigroup (Semigroup)
+import Data.Text (cons)
 import Data.Void (Void)
 import GHC.Base (assert)
 import Text.Megaparsec
@@ -47,29 +63,26 @@ import Text.Megaparsec
     sepBy,
     sepBy1,
     sepEndBy,
+    single,
     takeWhile1P,
     takeWhileP,
     try,
   )
-import Text.Megaparsec.Char (alphaNumChar, char, space1, string)
+import Text.Megaparsec.Char (space1, string)
 import qualified Text.Megaparsec.Char.Lexer as L
-import Prelude hiding (exponent, takeWhile)
 
-newtype Parser a = Parser {unParser :: Parsec Void String a}
+newtype Parser a = Parser {unParser :: Parsec Void Text a}
   deriving
     ( Alternative,
       Applicative,
       Functor,
       Monad,
       MonadFail,
-      MonadParsec Void String,
+      MonadParsec Void Text,
       MonadPlus,
       Monoid,
       Semigroup
     )
-
--- instance a ~ Text => IsString (Parser a) where
---   fromString x = Parser (fromString x)
 
 sc :: Parser ()
 sc =
@@ -81,7 +94,7 @@ sc =
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
-symbol :: String -> Parser String
+symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
 -- utils
@@ -99,18 +112,18 @@ sepByComma1 = (NonEmpty.fromList <$>) . (`sepBy1` symbol ",")
 
 --
 
-keywords :: [String]
+keywords :: [Text]
 keywords = ["data", "decl", "def", "let", "forall", "case", "of", "where"]
 
-keyword :: String -> Parser String
+keyword :: Text -> Parser Text
 keyword x =
   assert (x `elem` keywords) $
     lexeme (string x <* notFollowedBy (satisfy nameTailPredicate))
 
-notKeyword :: Parser String -> Parser String
+notKeyword :: Parser Text -> Parser Text
 notKeyword = mfilter (not . (`elem` keywords))
 
-localName :: Parser String
+localName :: Parser Text
 localName = lexeme $ notKeyword lowerName <|> upperName
 
 -- FIXME: better design
@@ -121,20 +134,20 @@ qname isConstructor =
       <|> if isConstructor then mzero else QName [] <$> notKeyword lowerName
   where
     go =
-      try (char '.') *> (((: []) <$> lowerName) <|> ((:) <$> upperName <*> go))
+      try (single '.') *> (((: []) <$> lowerName) <|> ((:) <$> upperName <*> go))
         <|> pure []
 
 nameTailPredicate :: Char -> Bool
 nameTailPredicate x = isAlphaNum x || x == '\''
 
-nameTail :: Parser String
+nameTail :: Parser Text
 nameTail = takeWhileP Nothing nameTailPredicate
 
 lowerName :: Parser LocalName
-lowerName = label "lowercase name" $ (satisfy isLower <&> (:)) <*> nameTail
+lowerName = label "lowercase name" $ (satisfy isLower <&> cons) <*> nameTail
 
 upperName :: Parser LocalName
-upperName = label "uppercase name" $ (satisfy isUpper <&> (:)) <*> nameTail
+upperName = label "uppercase name" $ (satisfy isUpper <&> cons) <*> nameTail
 
 annotations' :: Parser [Annotation]
 annotations' = many (Annotation <$> (hidden (symbol "@") *> expression))
@@ -144,7 +157,7 @@ application =
   (Application `flip`)
     <$> parenthesized (sepByComma1 disk)
   where
-    disk :: Parser (Maybe String, Expression)
+    disk :: Parser (Maybe Text, Expression)
     disk =
       try (((,) . Just <$> localName <* symbol "=") <*> expression)
         <|> (Nothing,) <$> expression

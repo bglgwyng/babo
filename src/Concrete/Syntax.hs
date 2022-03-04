@@ -1,5 +1,6 @@
 module Concrete.Syntax (module Concrete.Literal, module Concrete.Pattern, module Concrete.Syntax) where
 
+import BasicPrelude
 import Common
 import Concrete.Literal
 import Concrete.Pattern (Pattern)
@@ -13,7 +14,6 @@ import GHC.Generics hiding (Constructor)
 import GHC.IOArray (unsafeWriteIOArray)
 import GHC.OverloadedLabels (IsLabel (fromLabel))
 import Prettyprinter (pretty)
-import Prettyprinter.Render.String (renderString)
 import Prettyprinter.Render.Text (putDoc, renderLazy)
 
 newtype Annotation
@@ -43,8 +43,8 @@ data Expression
 -- TODO: Better name
 data ImportRule
   = Unqualified
-  | UnqualifiedOnly [(String, ImportRule)]
-  | Qualified String
+  | UnqualifiedOnly [(Text, ImportRule)]
+  | Qualified Text
 
 type Argument = (LocalName, Maybe Expression, [Annotation])
 
@@ -59,27 +59,27 @@ data Variant = Variant
 
 data TopLevelStatement
   = DataDeclaration
-      { name :: String,
+      { name :: Text,
         args :: [ArgumentBlock],
         maybeType :: Maybe Expression,
         variants :: [Variant],
         annotations :: [Annotation]
       }
   | Definition
-      { name :: String,
+      { name :: Text,
         args :: [ArgumentBlock],
         maybeType :: Maybe Expression,
         value :: Expression,
         annotations :: [Annotation]
       }
   | Declaration
-      { name :: String,
+      { name :: Text,
         args :: [ArgumentBlock],
         type' :: Expression,
         annotations :: [Annotation]
       }
   | Import
-      { url :: String,
+      { url :: Text,
         rule :: ImportRule,
         annotations :: [Annotation]
       }

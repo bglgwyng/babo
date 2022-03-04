@@ -1,8 +1,10 @@
 module Core.Constraint where
 
+import BasicPrelude
+import Common
 import Core.Term (Term)
-import Prettyprinter (Pretty (pretty), defaultLayoutOptions, layoutPretty, (<+>))
-import Prettyprinter.Render.String (renderString)
+import Prettyprinter (Doc, Pretty (pretty), defaultLayoutOptions, layoutPretty, (<+>))
+import Prettyprinter.Render.Text (renderLazy, renderStrict)
 
 type Context = [Term]
 
@@ -26,11 +28,11 @@ infix 2 ?:
 (?:) = HasType
 
 instance Pretty Constraint' where
-  pretty (Equal x y) = pretty (show x) <+> pretty "=" <+> pretty (show y)
-  pretty (HasType x y) = pretty (show x) <+> pretty ":" <+> pretty (show y)
+  pretty (Equal x y) = pretty (tshow x) <+> ptext "=" <+> pretty (tshow y)
+  pretty (HasType x y) = pretty (tshow x) <+> ptext ":" <+> pretty (tshow y)
 
 instance Pretty Constraint where
-  pretty (Constraint cxt x) = pretty (show $ reverse cxt) <+> pretty "|-" <+> pretty x
+  pretty (Constraint cxt x) = pretty (tshow $ reverse cxt) <+> ptext "|-" <+> pretty x
 
 instance Show Constraint where
-  show = renderString . layoutPretty defaultLayoutOptions . pretty
+  show = textToString . renderStrict . layoutPretty defaultLayoutOptions . pretty

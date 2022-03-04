@@ -1,6 +1,8 @@
 module Core.Term where
 
+import BasicPrelude
 import Common
+import Concrete.Literal
 import Control.Arrow ((>>>))
 import Data.List (find, foldl')
 import Data.List.NonEmpty (NonEmpty, toList)
@@ -9,8 +11,6 @@ import Data.Map (Map, (!))
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, maybeToList)
 import GHC.Exts (Any)
-import GHC.OldList (intercalate)
-import Concrete.Literal
 
 data Term
   = Global QName
@@ -72,7 +72,7 @@ instance Show Term where
       showAlt (p, t) = shows p . showString " -> " . shows t
 
 instance Show Pattern where
-  show (Constructor x) = x
+  show (Constructor x) = textToString x
   show x@(Literal _) = show x
 
 raise :: Int -> Term -> Term

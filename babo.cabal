@@ -65,9 +65,12 @@ library
       TypeApplications
       TypeFamilies
       MultiWayIf
+      OverloadedStrings
+      NoImplicitPrelude
   build-depends:
       array >=0.5.4
     , base >=4.7 && <5
+    , basic-prelude
     , containers >=0.6.5.1
     , extra >=1.7.0
     , logict >=0.7.1.0
@@ -78,6 +81,7 @@ library
     , polysemy-plugin
     , prettyprinter >=1.7.1
     , split >=0.2.3.4
+    , text
     , transformers
   default-language: Haskell2010
 
@@ -106,11 +110,14 @@ executable babo-exe
       TypeApplications
       TypeFamilies
       MultiWayIf
+      OverloadedStrings
+      NoImplicitPrelude
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -fplugin=Polysemy.Plugin
   build-depends:
       array >=0.5.4
     , babo
     , base >=4.7 && <5
+    , basic-prelude
     , containers >=0.6.5.1
     , extra >=1.7.0
     , logict >=0.7.1.0
@@ -121,6 +128,7 @@ executable babo-exe
     , polysemy-plugin
     , prettyprinter >=1.7.1
     , split >=0.2.3.4
+    , text
     , transformers
   default-language: Haskell2010
 
@@ -150,11 +158,14 @@ test-suite babo-test
       TypeApplications
       TypeFamilies
       MultiWayIf
+      OverloadedStrings
+      NoImplicitPrelude
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -fplugin=Polysemy.Plugin
   build-depends:
       array >=0.5.4
     , babo
     , base >=4.7 && <5
+    , basic-prelude
     , containers >=0.6.5.1
     , extra >=1.7.0
     , logict >=0.7.1.0
@@ -165,5 +176,6 @@ test-suite babo-test
     , polysemy-plugin
     , prettyprinter >=1.7.1
     , split >=0.2.3.4
+    , text
     , transformers
   default-language: Haskell2010

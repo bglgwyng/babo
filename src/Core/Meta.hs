@@ -1,5 +1,6 @@
 module Core.Meta where
 
+import BasicPrelude
 import Common (Id)
 import Core.Term (Term)
 import qualified Data.Map as M

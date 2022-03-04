@@ -1,5 +1,6 @@
 module Core.UnifyState where
 
+import BasicPrelude
 import Common
 import Control.Arrow ((&&&), (***))
 import Core.Constraint
@@ -35,7 +36,7 @@ instance Pretty UnifyState where
   pretty UnifyState {constraints, metas} =
     unless
       (null constraints)
-      ( pretty
+      ( ptext
           "constraints:"
           <> line
           <> vsep (indent 2 . pretty <$> M.elems constraints)
@@ -43,15 +44,15 @@ instance Pretty UnifyState where
       )
       <> unless
         (null metas)
-        ( pretty "metas:"
+        ( ptext "metas:"
             <> line
             <> vsep
               ( indent 2
                   . uncurry (<+>)
                   . ( (pretty . show . Meta)
                         *** ( \case
-                                Solved x _ -> pretty "=" <+> pretty (show x)
-                                Unsolved t -> pretty ":" <+> pretty (show t)
+                                Solved x _ -> ptext "=" <+> pretty (show x)
+                                Unsolved t -> ptext ":" <+> pretty (show t)
                             )
                     )
                   <$> assocs metas

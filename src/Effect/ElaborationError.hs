@@ -1,5 +1,6 @@
 module Effect.ElaborationError where
 
+import BasicPrelude
 import Common (QName (..))
 import Core.Constraint (Constraint)
 import qualified Core.Term as T

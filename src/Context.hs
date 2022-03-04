@@ -1,5 +1,6 @@
 module Context where
 
+import BasicPrelude
 import Common
 import Core.Term as T
 import Data.List.NonEmpty
