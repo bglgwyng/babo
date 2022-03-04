@@ -2,7 +2,6 @@
 
 module Concrete.Desugar where
 
-import BasicPrelude
 import Common
 import Concrete.Literal
 import Concrete.Pattern

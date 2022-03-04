@@ -1,6 +1,5 @@
 module Core.UnifyState where
 
-import BasicPrelude
 import Common
 import Control.Arrow ((&&&), (***))
 import Core.Constraint

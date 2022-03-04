@@ -1,6 +1,5 @@
 module Core.Term where
 
-import BasicPrelude
 import Common
 import Concrete.Literal
 import Control.Arrow ((>>>))

@@ -2,7 +2,6 @@
 
 module Core.Unification where
 
-import BasicPrelude
 import Common
 import Context (GlobalContext, Inhabitant (Definition), value)
 import qualified Context as C

@@ -2,7 +2,6 @@
 
 module App where
 
-import BasicPrelude
 import Concrete.Parser (Parser (..), parse)
 import Core.Term
 import Data.Text.Lazy (toStrict)

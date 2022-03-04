@@ -1,6 +1,5 @@
 module Common where
 
-import BasicPrelude
 import Prettyprinter (Doc, Pretty (pretty))
 
 type LocalName = Text

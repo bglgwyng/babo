@@ -1,7 +1,5 @@
 module Concrete.Literal where
 
-import BasicPrelude
-
 data Literal
   = UnitLiteral
   | StringLiteral String

@@ -16,7 +16,6 @@ module Concrete.Parser where
 -- import qualified Data.Text as Text
 -- import qualified Data.Text.Encoding as Text.Encoding
 
-import BasicPrelude
 import Common
 import Common (QName (namespace))
 import Concrete.Pattern hiding (Implicit)

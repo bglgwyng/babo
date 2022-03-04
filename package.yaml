@@ -20,7 +20,9 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/githubuser/babo#readme>
 
 dependencies:
-- base >= 4.7 && < 5
+- name: base
+  version:  ">= 4.7 && < 5"
+  mixin: hiding (Prelude)
 - array >= 0.5.4
 - prettyprinter >= 1.7.1
 - split >= 0.2.3.4
@@ -33,7 +35,8 @@ dependencies:
 - polysemy-plugin
 - transformers
 - megaparsec
-- basic-prelude
+- name: basic-prelude
+  mixin: (BasicPrelude as Prelude)
 - text
 
 default-extensions: 
@@ -56,11 +59,16 @@ default-extensions:
 - TypeFamilies
 - MultiWayIf
 - OverloadedStrings
-- NoImplicitPrelude
 
 library:
   source-dirs: src
+  mixins:
+    base hiding Prelude
+    basic-prelude (BasicPrelude as Prelude) 
   
+mixins:
+  base hiding Prelude
+  basic-prelude (BasicPrelude as Prelude) 
 
 executables:
   babo-exe:

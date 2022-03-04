@@ -1,6 +1,5 @@
 module Concrete.Pattern (Pattern (..), NamedPattern (..)) where
 
-import BasicPrelude
 import Common
 import Concrete.Literal (Literal)
 

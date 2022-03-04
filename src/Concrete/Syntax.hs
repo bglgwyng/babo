@@ -1,6 +1,5 @@
 module Concrete.Syntax (module Concrete.Literal, module Concrete.Pattern, module Concrete.Syntax) where
 
-import BasicPrelude
 import Common
 import Concrete.Literal
 import Concrete.Pattern (Pattern)

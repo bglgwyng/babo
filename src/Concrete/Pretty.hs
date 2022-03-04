@@ -1,6 +1,5 @@
 module Concrete.Pretty where
 
-import BasicPrelude
 import Common
 import Concrete.Pattern hiding (List, Literal, Tuple, Variable)
 import qualified Concrete.Pattern as P

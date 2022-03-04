@@ -1,6 +1,5 @@
 module Effect.Gen where
 
-import BasicPrelude
 import Polysemy
 import Polysemy.State (State, evalState, get, put, runState)
 

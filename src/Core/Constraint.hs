@@ -1,6 +1,5 @@
 module Core.Constraint where
 
-import BasicPrelude
 import Common
 import Core.Term (Term)
 import Prettyprinter (Doc, Pretty (pretty), defaultLayoutOptions, layoutPretty, (<+>))

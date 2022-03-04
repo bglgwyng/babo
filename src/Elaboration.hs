@@ -2,7 +2,6 @@
 
 module Elaboration (elaborate) where
 
-import BasicPrelude
 import Common
 import Concrete.Desugar (desugarArguments, desugarExpression, insertMeta)
 import Concrete.Syntax as C
