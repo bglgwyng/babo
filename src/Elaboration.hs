@@ -52,7 +52,7 @@ elaborate' DataDeclaration {name, args = params, maybeType, variants} = do
   (cxt', params') <- desugarArguments gcxt [] params
   let paramsArity = length params'
       (paramBinds, paramTypes) = unzipArgs params'
-  type' <- foldr T.Pi `flip` paramTypes <$> maybe (pure T.Type) (desugarExpression gcxt []) maybeType
+  type' <- foldr T.Pi `flip` paramTypes <$> maybe (pure T.Type) (desugarExpression gcxt cxt') maybeType
   -- FIXME:
   let namespace = []
       typeName = QName namespace name
