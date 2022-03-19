@@ -35,23 +35,22 @@ instance Pretty UnifyState where
   pretty UnifyState {constraints, metas} =
     unless
       (null constraints)
-      ( ptext
-          "constraints:"
+      ( "constraints:"
           <> line
           <> vsep (indent 2 . pretty <$> M.elems constraints)
           <> line
       )
       <> unless
         (null metas)
-        ( ptext "metas:"
+        ( "metas:"
             <> line
             <> vsep
               ( indent 2
                   . uncurry (<+>)
                   . ( (pretty . show . Meta)
                         *** ( \case
-                                Solved x _ -> ptext "=" <+> pretty (show x)
-                                Unsolved t -> ptext ":" <+> pretty (show t)
+                                Solved x _ -> "=" <+> pretty (show x)
+                                Unsolved t -> ":" <+> pretty (show t)
                             )
                     )
                   <$> assocs metas

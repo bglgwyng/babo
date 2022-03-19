@@ -15,7 +15,3 @@ type Id = Int
 type Level = Int
 
 type Index = Int
-
--- FIXME:
-ptext :: Text -> Doc ann
-ptext = pretty

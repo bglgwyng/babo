@@ -27,11 +27,11 @@ infix 2 ?:
 (?:) = HasType
 
 instance Pretty Constraint' where
-  pretty (Equal x y) = pretty (tshow x) <+> ptext "=" <+> pretty (tshow y)
-  pretty (HasType x y) = pretty (tshow x) <+> ptext ":" <+> pretty (tshow y)
+  pretty (Equal x y) = pretty (tshow x) <+> "=" <+> pretty (tshow y)
+  pretty (HasType x y) = pretty (tshow x) <+> ":" <+> pretty (tshow y)
 
 instance Pretty Constraint where
-  pretty (Constraint cxt x) = pretty (tshow $ reverse cxt) <+> ptext "|-" <+> pretty x
+  pretty (Constraint cxt x) = pretty (tshow $ reverse cxt) <+> "|-" <+> pretty x
 
 instance Show Constraint where
   show = textToString . renderStrict . layoutPretty defaultLayoutOptions . pretty

@@ -33,15 +33,13 @@ indent' :: Doc ann -> Doc ann
 indent' = indent tabSize
 
 commaSeparated :: [Doc ann] -> Doc ann
-commaSeparated = sep . punctuate (ptext ",")
-
-prettyName = ptext . intercalate "." . toList
+commaSeparated = sep . punctuate ","
 
 instance Pretty QName where
   pretty x = pretty (show x)
 
 instance Pretty Annotation where
-  pretty (Annotation value) = ptext "@" <> pretty value
+  pretty (Annotation value) = "@" <> pretty value
 
 instance Pretty Pattern where
   pretty (P.Variable x) = pretty x
@@ -53,67 +51,67 @@ instance Pretty Pattern where
       pretty' x@(Data constructor (_ : _)) =
         if null args
           then pretty x
-          else ptext "(" <> pretty x <> ptext ")"
+          else "(" <> pretty x <> ")"
       pretty' x = pretty x
-      prettyArgs (Left (P.NamedPattern x as)) = ptext "(" <> pretty x <+> ptext "=" <+> pretty as <> ptext ")"
-      -- prettyArgs (Left (P.PunnedImplicit x)) = ptext "(" <> pretty x <> ptext ")"
+      prettyArgs (Left (P.NamedPattern x as)) = "(" <> pretty x <+> "=" <+> pretty as <> ")"
+      -- prettyArgs (Left (P.PunnedImplicit x)) = "(" <> pretty x <> ")"
       prettyArgs (Right x) = pretty x
   pretty (P.Literal x) = pretty x
-  pretty (P.Tuple xs) = ptext "( " <> commaSeparated (pretty <$> xs) <> ptext " )"
-  pretty (P.List xs) = ptext "[ " <> commaSeparated (pretty <$> xs) <> ptext " ]"
-  pretty Wildcard = ptext "_"
+  pretty (P.Tuple xs) = "( " <> commaSeparated (pretty <$> xs) <> " )"
+  pretty (P.List xs) = "[ " <> commaSeparated (pretty <$> xs) <> " ]"
+  pretty Wildcard = "_"
 
 prettyBranch :: Branch -> Doc ann
 prettyBranch (pattern, expression) =
   sep
     [ commaSeparated $ toList (pretty <$> pattern),
-      ptext "->"
+      "->"
         <+> align (pretty expression)
         <> pretty ';'
     ]
 
 instance Pretty Expression where
   pretty (Identifier name) = pretty name
-  pretty (Application x xs) = hang tabSize $ pretty x <> ptext "(" <> sep (prettyDisk <$> toList xs) <> ptext ")"
+  pretty (Application x xs) = hang tabSize $ pretty x <> "(" <> sep (prettyDisk <$> toList xs) <> ")"
     where
       prettyDisk (Nothing, x) = pretty x
-      prettyDisk (Just x, y) = pretty '(' <> pretty x <+> ptext "=" <+> pretty y <> pretty ')'
-  pretty (Arrow x y) = sep [pretty x, ptext "->" <+> pretty y]
-  pretty Meta = ptext "?"
+      prettyDisk (Just x, y) = pretty '(' <> pretty x <+> "=" <+> pretty y <> pretty ')'
+  pretty (Arrow x y) = sep [pretty x, "->" <+> pretty y]
+  pretty Meta = "?"
   pretty (Let name value body) =
     vsep
-      [ ptext "let" <+> pretty name <+> ptext "=" <+> pretty value <> ptext ",",
+      [ "let" <+> pretty name <+> "=" <+> pretty value <> ",",
         pretty body
       ]
   pretty (ForAll froms to) =
-    ptext "forall" <+> align (commaSeparated (prettyArgument <$> toList froms)) <> ptext "," <+> pretty to
+    "forall" <+> align (commaSeparated (prettyArgument <$> toList froms)) <> "," <+> pretty to
     where
-      prettyArgument = uncurry (<>) . (pretty *** (ptext ":" <+>) . pretty)
+      prettyArgument = uncurry (<>) . (pretty *** (":" <+>) . pretty)
   pretty (Infix x op y) = pretty x <+> pretty op <+> pretty y
-  pretty (Tuple xs) = ptext "( " <> align (commaSeparated (pretty <$> xs) <> ptext " )")
-  pretty (List xs) = ptext "[ " <> align (commaSeparated (pretty <$> xs) <> ptext " ]")
+  pretty (Tuple xs) = "( " <> align (commaSeparated (pretty <$> xs) <> " )")
+  pretty (List xs) = "[ " <> align (commaSeparated (pretty <$> xs) <> " ]")
   pretty (Lambda names x) =
-    ptext "\\" <> align (sep [prettyLambdaArguments names <+> ptext "->", pretty x])
+    "\\" <> align (sep [prettyLambdaArguments names <+> "->", pretty x])
   pretty (Case x cases) =
-    ptext "case" <+> commaSeparated (pretty <$> x) <+> ptext "of" <+> align (vsep (prettyBranch <$> cases))
+    "case" <+> commaSeparated (pretty <$> x) <+> "of" <+> align (vsep (prettyBranch <$> cases))
   pretty (LambdaCase names cases) =
-    ptext "\\"
+    "\\"
       <> align
         ( case nonEmpty names of
             Nothing -> mempty
             Just xs -> prettyLambdaArguments xs <> line
         )
-      <> ptext "{" <+> align (sep (prettyBranch <$> cases) <+> ptext "}")
-  pretty Type = ptext "Type"
+      <> "{" <+> align (sep (prettyBranch <$> cases) <+> "}")
+  pretty Type = "Type"
   pretty (Literal x) = pretty x
-  pretty (Parenthesized x) = ptext "(" <> align (pretty x <> ptext ")")
+  pretty (Parenthesized x) = "(" <> align (pretty x <> ")")
 
 prettyLambdaArguments :: NonEmpty Argument -> Doc ann
 prettyLambdaArguments args = sep $ pretty' <$> toList args
   where
     pretty' :: Argument -> Doc ann
     pretty' (name, Nothing, _) = pretty name
-    pretty' (name, Just type', _) = ptext "(" <> pretty name <+> ptext ":" <+> pretty type' <> ptext ")"
+    pretty' (name, Just type', _) = "(" <> pretty name <+> ":" <+> pretty type' <> ")"
 
 prettyArguments :: [ArgumentBlock] -> Doc ann
 prettyArguments [] = mempty
@@ -123,22 +121,22 @@ prettyArguments xs =
     prettyArgument :: Argument -> Doc ann
     prettyArgument (name, type', _) =
       pretty name
-        <> maybe mempty ((ptext ":" <+>) . align . pretty) type'
+        <> maybe mempty ((":" <+>) . align . pretty) type'
     prettyArgumentBlock :: ArgumentBlock -> Doc ann
     prettyArgumentBlock (plicity, args) =
       ( case plicity of
-          Implicit -> (ptext "{" <>) . (<> ptext "}")
-          Explicit -> (ptext "(" <>) . (<> ptext ")")
+          Implicit -> ("{" <>) . (<> "}")
+          Explicit -> ("(" <>) . (<> ")")
       )
         $ commaSeparated (prettyArgument <$> args)
 
 instance Pretty TopLevelStatement where
   pretty DataDeclaration {name, args, maybeType, variants, annotations} =
-    ptext "data"
+    "data"
       <+> pretty name
         <> prettyArguments args
-        <> maybe mempty ((ptext ":" <+>) . pretty) maybeType
-      <+> ptext "{"
+        <> maybe mempty ((":" <+>) . pretty) maybeType
+      <+> "{"
         <> ( if null variants
                then mempty
                else
@@ -146,46 +144,46 @@ instance Pretty TopLevelStatement where
                    <> indent' (vsep (prettyVariant <$> variants))
                    <> line
            )
-        <> ptext "}"
+        <> "}"
     where
       prettyVariant :: Variant -> Doc ann
       prettyVariant Variant {name, args, maybeType} =
         pretty name
           <> prettyArguments args
-          <> maybe mempty (ptext " :" <+>) (pretty <$> maybeType)
+          <> maybe mempty (" :" <+>) (pretty <$> maybeType)
           <> pretty ';'
   pretty Definition {name, args, maybeType, value, annotations} =
-    ptext "def"
+    "def"
       <+> align
         ( sep
             [ pretty name
                 <> prettyArguments args
-                <> maybe mempty (ptext " :" <+>) (pretty <$> maybeType),
-              ptext "="
+                <> maybe mempty (" :" <+>) (pretty <$> maybeType),
+              "="
                 <+> align (pretty value)
             ]
         )
   pretty Declaration {name, args, type', annotations} =
-    ptext "decl"
+    "decl"
       <+> align
         ( pretty name
             <> prettyArguments args
-            <+> ptext ":"
+            <+> ":"
             <+> align (pretty type')
         )
-  pretty Import {url, rule, annotations} = ptext "import" <+> pretty url
-  pretty _ = ptext ""
+  pretty Import {url, rule, annotations} = "import" <+> pretty url
+  pretty _ = ""
 
 instance Pretty Literal where
-  pretty UnitLiteral = ptext "()"
+  pretty UnitLiteral = "()"
   pretty (StringLiteral s) = pretty $ show s
   pretty IntegerLiteral {negative, integer} = pretty integer
   pretty FloatLiteral {negative, integer, fractional} =
-    (if negative then ptext "-" else mempty)
+    (if negative then "-" else mempty)
       <> pretty integer
       <> case fractional of
         "" -> mempty
-        _ -> ptext "." <> pretty fractional
+        _ -> "." <> pretty fractional
 
 instance Pretty Source where
   pretty (Source decls) = vsep $ pretty <$> decls
