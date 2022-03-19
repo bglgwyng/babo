@@ -62,13 +62,6 @@ default-extensions:
 
 library:
   source-dirs: src
-  mixins:
-    base hiding Prelude
-    basic-prelude (BasicPrelude as Prelude) 
-  
-mixins:
-  base hiding Prelude
-  basic-prelude (BasicPrelude as Prelude) 
 
 executables:
   babo-exe:
